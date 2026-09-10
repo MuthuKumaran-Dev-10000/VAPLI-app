@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../controllers/admin_controller.dart';
 import '../controllers/auth_controller.dart';
 import '../widgets/placeholder_tab_widget.dart';
+import '../../features/tanks/presentation/pages/tank_browser_screen.dart';
+import '../../features/home/presentation/pages/tank_input_browser.dart';
 import 'admin_dashboard_screen.dart';
 import 'login_screen.dart';
 
@@ -269,14 +271,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          PlaceholderTabWidget(title: 'Tank Inspection & Readings Browser', icon: Icons.input_outlined),
-          PlaceholderTabWidget(title: 'Trends & Analytics Reports', icon: Icons.trending_up_outlined),
-          PlaceholderTabWidget(title: 'Operational Status Dashboard', icon: Icons.dashboard_outlined),
-        ],
+      body: NotificationListener<SwitchTabNotification>(
+        onNotification: (n) {
+          if (n.tabIndex >= 0 && n.tabIndex < 3) {
+            _tabController.animateTo(n.tabIndex);
+          }
+          return true;
+        },
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            TankInputBrowser(currentUser: currentUser),
+            const PlaceholderTabWidget(title: 'Trends & Analytics Reports', icon: Icons.trending_up_outlined),
+            const PlaceholderTabWidget(title: 'Operational Status Dashboard', icon: Icons.dashboard_outlined),
+          ],
+        ),
       ),
     );
   }
+}
+
+class SwitchTabNotification extends Notification {
+  final int tabIndex;
+  SwitchTabNotification(this.tabIndex);
 }

@@ -44,9 +44,13 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
     final authCtrl = context.read<AuthController>();
+    final adminCtrl = context.read<AdminController>();
+    final clientToUse = _selectedClient ?? adminCtrl.selectedClient;
+
     final success = await authCtrl.login(
       _usernameCtrl.text,
       _passwordCtrl.text,
+      selectedClient: clientToUse,
     );
 
     if (success && mounted) {

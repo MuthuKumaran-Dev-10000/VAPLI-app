@@ -4,6 +4,8 @@ import '../../data/api/api_client.dart';
 import '../../data/models/client_model.dart';
 import '../../data/models/user_model.dart';
 
+import '../../core/services/client_context_service.dart';
+
 class ClientGroupedUsers {
   final ClientModel client;
   final List<UserModel> users;
@@ -34,6 +36,9 @@ class AdminController extends ChangeNotifier {
 
   void selectClient(ClientModel? client) {
     _selectedClient = client;
+    if (client != null) {
+      ClientContextService.setActiveClient(client);
+    }
     notifyListeners();
   }
 
@@ -45,7 +50,7 @@ class AdminController extends ChangeNotifier {
     try {
       debugPrint('[DEBUG_CLIENTS] Requesting public clients from ${ApiConstants.baseUrl}${ApiConstants.clients}/public');
       final data = await _apiClient.get('${ApiConstants.clients}/public', authRequired: false);
-      final List<dynamic> list = data['clients'] ?? [];
+      final List<dynamic> list = data is List ? data : (data is Map ? (data['clients'] ?? []) : []);
       _clients = list.map((e) => ClientModel.fromJson(e)).toList();
       debugPrint('[DEBUG_CLIENTS] Successfully loaded ${_clients.length} public clients: ${_clients.map((c) => c.name).toList()}');
       if (_clients.isNotEmpty && _selectedClient == null) {

@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/utils/session_manager.dart';
 
@@ -50,18 +52,23 @@ class ApiClient {
       return jsonBody;
     }
 
-    if (jsonBody is Map && jsonBody['error'] is Map) {
-      final err = jsonBody['error'];
-      throw ApiException(
-        code: err['code']?.toString() ?? 'ERROR',
-        message: err['message']?.toString() ?? 'HTTP ${response.statusCode} error',
-        statusCode: response.statusCode,
-      );
+    String errorMsg = 'Server returned HTTP ${response.statusCode}';
+    String errorCode = 'HTTP_${response.statusCode}';
+
+    if (jsonBody is Map) {
+      if (jsonBody['error'] is Map) {
+        errorMsg = jsonBody['error']['message']?.toString() ?? errorMsg;
+        errorCode = jsonBody['error']['code']?.toString() ?? errorCode;
+      } else if (jsonBody['message'] != null) {
+        errorMsg = jsonBody['message'].toString();
+      } else if (jsonBody['error'] != null && jsonBody['error'] is String) {
+        errorMsg = jsonBody['error'].toString();
+      }
     }
 
     throw ApiException(
-      code: 'HTTP_${response.statusCode}',
-      message: 'Server returned HTTP ${response.statusCode}',
+      code: errorCode,
+      message: errorMsg,
       statusCode: response.statusCode,
     );
   }
@@ -87,10 +94,49 @@ class ApiClient {
     return _handleResponse(response);
   }
 
-  Future<dynamic> delete(String path, {bool authRequired = true}) async {
+  Future<dynamic> delete(String path, {Map<String, dynamic>? body, bool authRequired = true}) async {
     final headers = await _getHeaders(authRequired: authRequired);
     final uri = Uri.parse('${ApiConstants.baseUrl}$path');
-    final response = await _client.delete(uri, headers: headers);
+    final response = await _client.delete(
+      uri,
+      headers: headers,
+      body: body != null ? jsonEncode(body) : null,
+    );
+    return _handleResponse(response);
+  }
+
+  Future<dynamic> uploadMultipart(
+    String path, {
+    required Uint8List bytes,
+    required String filename,
+    Map<String, String>? fields,
+    bool authRequired = true,
+  }) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}$path');
+    final req = http.MultipartRequest('POST', uri);
+
+    if (authRequired) {
+      final token = await SessionManager.getToken();
+      if (token != null && token.isNotEmpty) {
+        req.headers['Authorization'] = 'Bearer $token';
+      }
+    }
+
+    if (fields != null) {
+      req.fields.addAll(fields);
+    }
+
+    req.files.add(
+      http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: filename,
+        contentType: MediaType('image', 'png'),
+      ),
+    );
+
+    final streamedResponse = await _client.send(req);
+    final response = await http.Response.fromStream(streamedResponse);
     return _handleResponse(response);
   }
 }

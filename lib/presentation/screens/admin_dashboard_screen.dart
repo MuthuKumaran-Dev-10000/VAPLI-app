@@ -5,6 +5,7 @@ import '../../core/security/rbac.dart';
 import '../../core/theme/app_theme.dart';
 import '../controllers/admin_controller.dart';
 import '../controllers/auth_controller.dart';
+import '../../features/tanks/presentation/pages/tank_browser_screen.dart';
 import '../widgets/audit_logs_tab_widget.dart';
 import '../widgets/clients_tab_widget.dart';
 import '../widgets/placeholder_tab_widget.dart';
@@ -84,6 +85,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
         centerTitle: true,
         backgroundColor: AppTheme.surface,
         elevation: 0,
@@ -190,7 +197,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       body: TabBarView(
         controller: _tabController,
         children: const [
-          PlaceholderTabWidget(title: 'Tank Asset Management', icon: Icons.water_drop),
+          TankBrowserScreen(),
           ClientsTabWidget(),
           UsersTabWidget(),
           PlaceholderTabWidget(title: 'System & Parameter Configuration', icon: Icons.settings),

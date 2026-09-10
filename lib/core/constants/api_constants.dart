@@ -1,21 +1,8 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
-
 class ApiConstants {
-  // Base URL automatically detects platform:
-  // - Web / Desktop / iOS: http://localhost:3000/api/v1
-  // - Android Emulator: http://10.0.2.2:3000/api/v1 (10.0.2.2 maps to host machine's 127.0.0.1)
-  static String get baseUrl {
-    if (kIsWeb) {
-      return 'http://localhost:3000/api/v1';
-    }
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3000/api/v1';
-      }
-    } catch (_) {}
-    return 'http://localhost:3000/api/v1';
-  }
+  static const String serverIp = '192.168.1.109';
+  static const String serverPort = '8081';
+
+  static String get baseUrl => 'http://$serverIp:$serverPort/api/v1';
 
   // Auth
   static const String login = '/auth/login';
