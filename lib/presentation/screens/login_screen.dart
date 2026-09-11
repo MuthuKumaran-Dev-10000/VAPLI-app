@@ -7,6 +7,8 @@ import '../controllers/admin_controller.dart';
 import '../controllers/auth_controller.dart';
 import 'home_screen.dart';
 
+import '../../core/utils/session_manager.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -26,9 +28,25 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final adminCtrl = context.read<AdminController>();
+      await adminCtrl.loadPublicClients();
+
+      final lastClient = await SessionManager.getLastUsedClient();
+      final lastUsername = await SessionManager.getLastUsedUsername();
+
       if (mounted) {
-        context.read<AdminController>().loadPublicClients();
+        setState(() {
+          if (lastClient != null) {
+            _selectedClient = lastClient;
+            _clientSearchCtrl.text = lastClient.name;
+            adminCtrl.selectClient(lastClient);
+          }
+          if (lastUsername != null && lastUsername.isNotEmpty) {
+            _usernameCtrl.text = lastUsername;
+          }
+        });
       }
     });
   }
@@ -54,6 +72,10 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (success && mounted) {
+      if (_usernameCtrl.text.trim().isNotEmpty) {
+        await SessionManager.saveLastUsedUsername(_usernameCtrl.text.trim());
+      }
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),

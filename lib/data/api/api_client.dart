@@ -87,6 +87,13 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  Future<dynamic> put(String path, Map<String, dynamic> body, {bool authRequired = true}) async {
+    final headers = await _getHeaders(authRequired: authRequired);
+    final uri = Uri.parse('${ApiConstants.baseUrl}$path');
+    final response = await _client.put(uri, headers: headers, body: jsonEncode(body));
+    return _handleResponse(response);
+  }
+
   Future<dynamic> patch(String path, Map<String, dynamic> body, {bool authRequired = true}) async {
     final headers = await _getHeaders(authRequired: authRequired);
     final uri = Uri.parse('${ApiConstants.baseUrl}$path');

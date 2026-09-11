@@ -11,6 +11,8 @@ class SessionManager {
   static const String _keyActiveClient = 'active_client';
   static const String _keyLastUsedClient = 'last_used_client';
 
+  static const String _keyLastUsedUsername = 'last_used_username';
+
   static Future<void> saveSession(
     String token,
     UserModel user, {
@@ -19,9 +21,32 @@ class SessionManager {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken, token);
     await prefs.setString(_keyUser, jsonEncode(user.toJson()));
+    await prefs.setString(_keyLastUsedUsername, user.username);
 
     if (activeClient != null) {
       await saveActiveClient(activeClient);
+    }
+  }
+
+  static Future<void> saveLastUsedUsername(String username) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLastUsedUsername, username.trim());
+  }
+
+  static Future<String?> getLastUsedUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyLastUsedUsername);
+  }
+
+  static Future<ClientModel?> getLastUsedClient() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyLastUsedClient) ?? prefs.getString(_keyActiveClient);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final Map<String, dynamic> map = jsonDecode(raw);
+      return ClientModel.fromJson(map);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -89,8 +114,8 @@ class SessionManager {
     await prefs.remove(_keyToken);
     await prefs.remove(_keyUser);
     await prefs.remove(_keyActiveClient);
-    await prefs.remove(_keyLastUsedClient);
+    // Keep _keyLastUsedClient and _keyLastUsedUsername so LoginScreen can auto pre-fill previously selected client & user
     DatabaseModeService.activeClientId.value = null;
-    debugPrint('[SessionManager] Session and active client cleared.');
+    debugPrint('[SessionManager] Active session cleared (last used client and username preserved).');
   }
 }

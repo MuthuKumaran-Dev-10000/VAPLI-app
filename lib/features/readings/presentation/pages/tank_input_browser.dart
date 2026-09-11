@@ -10,6 +10,7 @@ import 'package:vapli/features/tanks/data/repositories/tank_repository.dart';
 import 'package:vapli/features/tanks/data/repositories/tank_tree_repository.dart';
 import 'package:vapli/features/readings/presentation/pages/reading_entry_screen.dart';
 import 'package:vapli/core/services/client_context_service.dart';
+import 'package:vapli/core/utils/session_manager.dart';
 
 const _kBg = Color(0xFF080909);
 const _kSurface = Color(0xFF0F1012);
@@ -40,6 +41,7 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
   TankNode? get _currentFolder => _pathStack.last;
 
   List<TankNode> _nodes = [];
+  String _clientName = 'Client';
   final Map<String, TankModel> _tankCache = {};
   StreamSubscription<List<TankNode>>? _sub;
   bool _loading = true;
@@ -53,6 +55,11 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
   @override
   void initState() {
     super.initState();
+    SessionManager.getActiveClientName().then((name) {
+      if (mounted && name != null && name.trim().isNotEmpty) {
+        setState(() => _clientName = name.trim());
+      }
+    });
     _searchCtrl.addListener(() {
       final q = _searchCtrl.text.trim().toLowerCase();
       if (q != _query) {
@@ -237,7 +244,7 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
                 itemBuilder: (context, idx) {
                   final node = _pathStack[idx];
                   final isLast = idx == _pathStack.length - 1;
-                  final label = idx == 0 ? 'Root' : (node?.name ?? '');
+                  final label = idx == 0 ? (_clientName.isNotEmpty ? _clientName : 'Client') : (node?.name ?? '');
 
                   return GestureDetector(
                     onTap: () => _navigateToBreadcrumb(idx),

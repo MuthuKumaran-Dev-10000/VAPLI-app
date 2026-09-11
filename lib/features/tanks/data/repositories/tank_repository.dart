@@ -145,6 +145,17 @@ class TankRepository {
     await _api.patch('/assets/tanks/${tank.id}', tank.toMap());
   }
 
+  Future<void> updateInspectionFrequency({
+    required String tankId,
+    required String type,
+    required int days,
+  }) async {
+    await _api.patch('/assets/tanks/$tankId', {
+      'inspection_frequency_type': type,
+      'inspection_frequency_days': days,
+    });
+  }
+
   Future<void> updateTankUrl(String tankId, String url) async {
     await _api.patch('/assets/tanks/$tankId', {'qr_image_url': url});
   }

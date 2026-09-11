@@ -38,6 +38,7 @@ import 'package:vapli/features/tanks/data/models/tank_node_model.dart';
 import 'package:vapli/data/models/user_model.dart';
 import 'package:vapli/features/tanks/data/repositories/tank_repository.dart';
 import 'package:vapli/features/tanks/data/repositories/tank_tree_repository.dart';
+import 'package:vapli/core/utils/session_manager.dart';
 import 'package:vapli/features/readings/presentation/pages/reading_entry_screen.dart';
 import 'package:vapli/features/readings/data/repositories/reading_repository.dart';
 import 'package:vapli/features/dashboard/data/repositories/dashboard_stats_repository.dart';
@@ -165,7 +166,20 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
     _initClientRootAndLoad();
   }
 
+  String _effectiveRootTitle = 'Root';
+  String get _resolvedRootTitle =>
+      (widget.rootTitleOverride == 'Root' || widget.rootTitleOverride.isEmpty)
+          ? _effectiveRootTitle
+          : widget.rootTitleOverride;
+
   Future<void> _initClientRootAndLoad() async {
+    final clientName = await SessionManager.getActiveClientName();
+    if (mounted && clientName != null && clientName.trim().isNotEmpty) {
+      setState(() {
+        _effectiveRootTitle = clientName.trim();
+      });
+    }
+
     if (widget.rootFolderIdOverride != null &&
         widget.rootFolderIdOverride!.trim().isNotEmpty) {
       final rootNode = await _treeRepo.fetchNode(widget.rootFolderIdOverride!);
