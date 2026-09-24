@@ -105,9 +105,18 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
+  StreamSubscription<ClientModel?>? _clientContextSub;
+
   @override
   void initState() {
     super.initState();
+    _clientContextSub = ClientContextService.activeClientStream.listen((_) {
+      if (!mounted) return;
+      _subscribeAlerts();
+      _subscribeCompleted();
+      _subscribeSettings();
+      setState(() {});
+    });
     _tankSub = TankRepository().watchTanks().listen((tanks) {
       if (!mounted) return;
       setState(() {
@@ -3123,6 +3132,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
   @override
   void dispose() {
+    _clientContextSub?.cancel();
     _tankSub?.cancel();
     _alertSub?.cancel();
     _completedSub?.cancel();

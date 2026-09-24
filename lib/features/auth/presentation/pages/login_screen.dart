@@ -176,6 +176,22 @@ class _LoginScreenState extends State<LoginScreen>
         username: _usernameCtrl.text,
         password: _passwordCtrl.text,
       );
+
+      final loggedInUser = await SessionManager.getCurrentUser();
+      if (loggedInUser != null &&
+          loggedInUser.role.toLowerCase() != AccessControlService.roleSuperAdmin &&
+          _selectedClient != null) {
+        final hasAccess = loggedInUser.clientIds.contains(_selectedClient!.id);
+        if (!hasAccess) {
+          await ClientContextService.clearActiveClient();
+          await DatabaseModeService.setClientScope(null);
+          await SessionManager.clearSession();
+          throw Exception(
+            'User "${loggedInUser.username}" is not authorized for client "${_selectedClient!.name}". Please select the correct client.',
+          );
+        }
+      }
+
       try {
         await FcmSubscriptionHelper.handleFcmTopicSubscription(_selectedClient!.dbKey);
       } catch (_) {}

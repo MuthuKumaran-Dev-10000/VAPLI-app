@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -79,6 +80,8 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  StreamSubscription<ClientModel?>? _clientSub;
+
   @override
   void initState() {
     super.initState();
@@ -88,7 +91,23 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
     );
 
+    _clientSub = ClientContextService.activeClientStream.listen((client) {
+      if (!mounted) return;
+      setState(() {
+        _activeClient = client;
+        _tabRefreshTick++;
+      });
+      _loadTanks();
+    });
+
     _init();
+  }
+
+  @override
+  void dispose() {
+    _clientSub?.cancel();
+    _tabCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {

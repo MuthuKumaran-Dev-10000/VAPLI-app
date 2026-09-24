@@ -1,17 +1,27 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lubrication_indicator/core/models/client_model.dart';
+import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 
 class ClientContextService {
   static const _key = 'active_client';
   static const _lastUsedKey = 'last_used_client';
+
+  static final StreamController<ClientModel?> _activeClientController =
+      StreamController<ClientModel?>.broadcast();
+
+  static Stream<ClientModel?> get activeClientStream =>
+      _activeClientController.stream;
 
   static Future<void> setActiveClient(ClientModel client) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = jsonEncode(client.toMap());
     await prefs.setString(_key, raw);
     await prefs.setString(_lastUsedKey, raw);
+    await DatabaseModeService.setClientScope(client.dbKey);
+    _activeClientController.add(client);
   }
 
   static Future<ClientModel?> getActiveClient() async {
@@ -24,6 +34,8 @@ class ClientContextService {
   static Future<void> clearActiveClient() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
+    await DatabaseModeService.setClientScope(null);
+    _activeClientController.add(null);
   }
 
   static Future<void> setLastUsedClient(ClientModel client) async {

@@ -42,6 +42,8 @@ import 'package:lubrication_indicator/features/readings/presentation/pages/readi
 import 'package:lubrication_indicator/features/readings/data/repositories/reading_repository.dart';
 import 'package:lubrication_indicator/features/dashboard/data/repositories/dashboard_stats_repository.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
+import 'package:lubrication_indicator/core/models/client_model.dart';
+import 'package:lubrication_indicator/core/services/client_context_service.dart';
 import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart';
 import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 import 'home_screen.dart';
@@ -146,6 +148,12 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
   List<TankNode> _allNodes = [];
   bool _allNodesFetched = false;
 
+  StreamSubscription<ClientModel?>? _clientContextSub;
+  String? _dynamicClientName;
+
+  String get _effectiveRootTitle =>
+      _dynamicClientName ?? widget.rootTitleOverride;
+
   @override
   void initState() {
     super.initState();
@@ -162,10 +170,39 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
         });
       }
     });
+
+    _resolveClientName();
+    _clientContextSub = ClientContextService.activeClientStream.listen((client) {
+      if (!mounted) return;
+      setState(() {
+        _dynamicClientName = client?.name;
+        _pathStack
+          ..clear()
+          ..add(null);
+        _selectedLeaf = null;
+        _selectedTank = null;
+        _tankCache.clear();
+        _query = '';
+        _searchCtrl.clear();
+      });
+      _initClientRootAndLoad();
+    });
+
     _initClientRootAndLoad();
   }
 
+  Future<void> _resolveClientName() async {
+    final resolved = await ClientContextService.resolveClientName(
+        fallback: widget.rootTitleOverride);
+    if (mounted && resolved != null && resolved.isNotEmpty) {
+      setState(() {
+        _dynamicClientName = resolved;
+      });
+    }
+  }
+
   Future<void> _initClientRootAndLoad() async {
+    await _resolveClientName();
     if (widget.rootFolderIdOverride != null &&
         widget.rootFolderIdOverride!.trim().isNotEmpty) {
       final rootNode = await _treeRepo.fetchNode(widget.rootFolderIdOverride!);
@@ -181,6 +218,7 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
 
   @override
   void dispose() {
+    _clientContextSub?.cancel();
     _activeAlertsSub?.cancel();
     _audioPlayer.dispose();
     _sub?.cancel();
@@ -333,7 +371,11 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
     _activeAlertsSub?.cancel();
     _activeAlertsSub = Stream.fromFuture(AlertRepository().getAll()).listen((allAlerts) {
       if (!mounted) return;
-      final filtered = allAlerts.where((a) => a.tankId == tankId && !a.resolved).toList();
+      final filtered = allAlerts.where((a) => 
+        (a.tankId == tankId || a.tankId.endsWith(tankId) || tankId.endsWith(a.tankId)) && 
+        !a.resolved && 
+        a.status != 'COMPLETED'
+      ).toList();
       filtered.sort((a, b) => b.capturedAt.compareTo(a.capturedAt));
       setState(() {
         _activeAlerts = filtered;
@@ -895,7 +937,7 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
           // ── Breadcrumb bar ───────────────────────────────────────────────
           _BreadcrumbBar(
             pathStack: _pathStack,
-            rootLabel: widget.rootTitleOverride,
+            rootLabel: _effectiveRootTitle,
             onRootTap: widget.onRootTap,
             onNavigate: _navigateToBreadcrumb,
           ),
@@ -999,7 +1041,7 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
                           leaf: _selectedLeaf!,
                           tank: _selectedTank,
                           currentUser: widget.currentUser,
-                          rootTitleOverride: widget.rootTitleOverride,
+                          rootTitleOverride: _effectiveRootTitle,
                           onBack: _clearLeafSelection,
                           siblingTanks: siblingTanks.isNotEmpty ? siblingTanks : null,
                           currentTankIndex: currentTankIndex >= 0 ? currentTankIndex : null,

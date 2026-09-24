@@ -86,6 +86,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<ClientModel> _clients = [];
   StreamSubscription? _usersSub;
   StreamSubscription<List<ClientModel>>? _clientsSub;
+  StreamSubscription<ClientModel?>? _clientContextSub;
 
   bool _can(String p) => AccessControlService.can(widget.currentUser, p);
   bool get _isSuperAdmin =>
@@ -270,6 +271,15 @@ class _AdminDashboardState extends State<AdminDashboard>
       }
     });
 
+    _clientContextSub = ClientContextService.activeClientStream.listen((client) {
+      if (!mounted) return;
+      setState(() {
+        _selectedClientId = client?.id;
+        _tabRefreshTick++;
+      });
+      _load();
+    });
+
     _hydrateSelectedClient();
     _load();
   }
@@ -326,11 +336,17 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   List<Map> get _scopedUsers {
     var users = _users;
-    if (_isSuperAdmin && _selectedClientId != null) {
+    if (_selectedClientId != null && _selectedClientId!.trim().isNotEmpty) {
       users = users.where((u) {
+        final role = (u['role']?.toString() ?? '').toLowerCase();
+        if (role == 'super admin' || role == 'superadmin') return true;
         final ids = ((u['client_ids'] as List?) ?? const [])
             .map((e) => e.toString())
             .toList();
+        final singleId = u['client_id']?.toString();
+        if (singleId != null && singleId.trim().isNotEmpty) {
+          ids.add(singleId.trim());
+        }
         return ids.contains(_selectedClientId);
       }).toList();
     }
@@ -2389,6 +2405,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   void dispose() {
     _usersSub?.cancel();
     _clientsSub?.cancel();
+    _clientContextSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }

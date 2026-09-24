@@ -6,10 +6,9 @@ class ApiClient {
   // =========================================================
   // EDIT THIS LINE TO CHANGE THE VAPLI API SERVER ADDRESS.
   // Mac Localhost / Desktop: http://127.0.0.1:8081/api/v1
+  // Physical Android Phone / Mac LAN IP: http://192.168.1.7:8081/api/v1
   // Android Emulator: http://10.0.2.2:8081/api/v1
-  // Physical Android Phone: http://<MAC-LAN-IP>:8081/api/v1
-  // =========================================================
-  static const String baseUrl = 'http://10.0.2.2:8081/api/v1';
+  static const String baseUrl = 'http://192.168.1.7:8081/api/v1';
 
   static String? authToken;
   static String? currentClientId;
