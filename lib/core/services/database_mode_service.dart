@@ -1,44 +1,21 @@
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lubrication_indicator/core/api/api_client.dart';
 
 class DatabaseModeService {
   static const _prefKey = 'db_mode_development';
   static const _clientScopeKey = 'db_client_scope';
-  static const _devRoot = 'testDB';
 
   static final ValueNotifier<bool> isDevelopment = ValueNotifier<bool>(false);
   static final ValueNotifier<String?> activeClientId =
       ValueNotifier<String?>(null);
-
-  static const Set<String> _globalPaths = {
-    'users',
-    'clients',
-  };
-
-  static const Set<String> _scopedPaths = {
-    'Previouscapture',
-    'tanks',
-    'tank_tree',
-    'readings',
-    'alerts',
-    'completed_tasks',
-    'admin_audit_logs',
-    'alerts_full',
-    'violations',
-    'dashboard_stats',
-    'reading_feedback',
-    'sync_logs',
-    'settings',
-    'Dashboard_Alerts_display',
-    'Dashboard_Alerts_completed',
-  };
 
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     isDevelopment.value = prefs.getBool(_prefKey) ?? false;
     final cid = prefs.getString(_clientScopeKey);
     activeClientId.value = (cid == null || cid.trim().isEmpty) ? null : cid;
+    ApiClient.currentClientId = activeClientId.value;
   }
 
   static Future<void> setDevelopment(bool enabled) async {
@@ -54,6 +31,7 @@ class DatabaseModeService {
     final normalized =
         (clientId == null || clientId.trim().isEmpty) ? null : clientId.trim();
     activeClientId.value = normalized;
+    ApiClient.currentClientId = normalized;
     if (normalized == null) {
       await prefs.remove(_clientScopeKey);
     } else {
@@ -62,29 +40,6 @@ class DatabaseModeService {
   }
 
   static String path(String rawPath) {
-    final normalized = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
-    var resolved = normalized;
-
-    if (resolved.isNotEmpty) {
-      final head = resolved.split('/').first;
-      if (!_globalPaths.contains(head) &&
-          _scopedPaths.contains(head) &&
-          activeClientId.value != null) {
-        resolved = '${activeClientId.value}/$resolved';
-      }
-    }
-
-    if (!isDevelopment.value) return resolved;
-    if (resolved.isEmpty) return _devRoot;
-    return '$_devRoot/$resolved';
-  }
-
-  static DatabaseReference ref([String? rawPath]) {
-    if (rawPath == null || rawPath.trim().isEmpty) {
-      return isDevelopment.value
-          ? FirebaseDatabase.instance.ref(_devRoot)
-          : FirebaseDatabase.instance.ref();
-    }
-    return FirebaseDatabase.instance.ref(path(rawPath));
+    return rawPath;
   }
 }

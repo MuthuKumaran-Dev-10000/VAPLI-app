@@ -67,12 +67,12 @@ class _LeafCardContentState extends State<_LeafCardContent> {
         final t = widget.tank;
         final tid = widget.node.tankId;
         if (t == null || tid == null) return;
-        final base = t.tankName.replaceAll(RegExp(r'\s*\(\d+\)$'), '');
-        final newName = '$base (1)';
         final clientName = await ClientContextService.resolveClientName(
           fallback: widget.node.zone ?? t.location ?? '',
         );
         final newTankId = await widget.tankRepo.duplicateTank(t);
+        final newTank = await widget.tankRepo.getTankById(newTankId);
+        final newName = newTank?.tankName ?? '${t.tankName} (Copy)';
         await widget.treeRepo.createLeaf(
           name: newName,
           tankId: newTankId,
@@ -99,12 +99,12 @@ class _LeafCardContentState extends State<_LeafCardContent> {
               child: _PrintableQr(node: widget.node, tank: widget.tank)),
           pixelRatio: 3.0,
         );
-        final qrUrl = await uploadBytesToCloudinary(bytes, folder: folderMain);
+        final client = await ClientContextService.getActiveClient();
+        final clientId = client?.id ?? 'dummy_client_id';
+        final qrUrl = await ApiClient.uploadBytes(bytes, filename: 'qr_${widget.node.id}.png');
         final tid = widget.node.tankId;
         if (tid != null) {
-          await FirebaseDatabase.instance
-              .ref('tanks/$tid')
-              .update({'qr_image_url': qrUrl});
+          await ApiClient.put('/clients/$clientId/tanks/$tid', {'qr_image_url': qrUrl});
         }
         final dir = await getApplicationDocumentsDirectory();
         final file = File(

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class ReadingModel {
   final String id;
   final String tankId;
@@ -42,23 +44,46 @@ class ReadingModel {
         'captured_at': capturedAt,
       };
 
-  factory ReadingModel.fromMap(Map<String, dynamic> m) => ReadingModel(
-        id: m['id']?.toString() ?? '',
-        tankId: m['tank_id']?.toString() ?? '',
-        tankSnapshotName: m['tank_snapshot_name']?.toString(),
-        finalLevel: m['final_level'] != null
-            ? (m['final_level'] as num).toDouble()
-            : null,
-        inspectionValues: m['inspection_values'] != null
-            ? Map<String, dynamic>.from(m['inspection_values'] as Map)
-            : {},
-        imageUrl: m['image_url']?.toString(),
-        source: m['source']?.toString() ?? 'manual',
-        capturedBy: m['captured_by']?.toString() ?? '',
-        capturedByName: m['captured_by_name']?.toString() ?? '',
-        inferenceTimeMs: m['inference_time_ms']?.toString(),
-        capturedAtStart: m['captured_at_start']?.toString(),
-        capturedAt: m['captured_at']?.toString() ??
-            DateTime.now().toIso8601String(),
-      );
+  factory ReadingModel.fromMap(Map<String, dynamic> m) {
+    double? parsedLevel;
+    final rawLevel = m['final_level'];
+    if (rawLevel != null) {
+      if (rawLevel is num) {
+        parsedLevel = rawLevel.toDouble();
+      } else if (rawLevel is String) {
+        parsedLevel = double.tryParse(rawLevel);
+      }
+    }
+
+    Map<String, dynamic> parsedValues = {};
+    final rawValues = m['inspection_values'] ?? m['inspection_values_json'];
+    if (rawValues != null) {
+      if (rawValues is Map) {
+        parsedValues = Map<String, dynamic>.from(rawValues);
+      } else if (rawValues is String && rawValues.trim().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawValues);
+          if (decoded is Map) {
+            parsedValues = Map<String, dynamic>.from(decoded);
+          }
+        } catch (_) {}
+      }
+    }
+
+    return ReadingModel(
+      id: m['id']?.toString() ?? '',
+      tankId: m['tank_id']?.toString() ?? '',
+      tankSnapshotName: m['tank_snapshot_name']?.toString(),
+      finalLevel: parsedLevel,
+      inspectionValues: parsedValues,
+      imageUrl: m['image_url']?.toString(),
+      source: m['source']?.toString() ?? 'manual',
+      capturedBy: m['captured_by']?.toString() ?? '',
+      capturedByName: m['captured_by_name']?.toString() ?? '',
+      inferenceTimeMs: m['inference_time_ms']?.toString(),
+      capturedAtStart: m['captured_at_start']?.toString(),
+      capturedAt: m['captured_at']?.toString() ??
+          DateTime.now().toIso8601String(),
+    );
+  }
 }

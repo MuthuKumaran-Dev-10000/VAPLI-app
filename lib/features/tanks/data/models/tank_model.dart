@@ -1,30 +1,17 @@
 class TankModel {
   final String id;
-
   final String tankCode;
-
   final String tankName;
-
   final String? location;
-
   final String? qrJson;
-
   final String? qrImageUrl;
-
   final List<Map<String, dynamic>> inspectionProperties;
-
   final double scaleMin;
-
   final double scaleMax;
-
   final String? scaleSide;
-
   final bool isActive;
-
   final String createdBy;
-
   final String createdAt;
-
   final String updatedAt;
   final String inspectionFrequencyType; // daily|weekly_once|weekly_thrice|custom_days
   final int inspectionFrequencyDays;
@@ -82,8 +69,8 @@ class TankModel {
   ) {
     List<Map<String, dynamic>> properties = [];
 
-    if (m["inspection_properties"] != null) {
-      final raw = m["inspection_properties"];
+    final raw = m["inspection_properties"] ?? m["inspection_properties_json"];
+    if (raw != null) {
       if (raw is List) {
         properties = raw
             .whereType<Map>()
@@ -106,8 +93,8 @@ class TankModel {
     }
 
     Map<String, dynamic> parsedGroups = {};
-    if (m["Groups"] != null) {
-      final rawGroups = m["Groups"];
+    if (m["Groups"] != null || m["groups"] != null) {
+      final rawGroups = m["Groups"] ?? m["groups"];
       if (rawGroups is Map) {
         try {
           parsedGroups = <String, dynamic>{};
@@ -118,30 +105,52 @@ class TankModel {
       }
     }
 
+    bool parseBool(dynamic val, {bool defaultValue = true}) {
+      if (val == null) return defaultValue;
+      if (val is bool) return val;
+      if (val is num) return val != 0;
+      if (val is String) {
+        final s = val.toLowerCase().trim();
+        return s == 'true' || s == '1';
+      }
+      return defaultValue;
+    }
+
+    double parseDouble(dynamic val, {double defaultValue = 0.0}) {
+      if (val == null) return defaultValue;
+      if (val is num) return val.toDouble();
+      if (val is String) {
+        return double.tryParse(val) ?? defaultValue;
+      }
+      return defaultValue;
+    }
+
     return TankModel(
-      id: m["id"] ?? "",
-      tankCode: m["tank_code"] ?? "",
-      tankName: m["tank_name"] ?? "",
-      location: m["location"],
-      qrJson: m["qr_json"],
-      qrImageUrl: m["qr_image_url"],
+      id: m["id"]?.toString() ?? "",
+      tankCode: m["tank_code"]?.toString() ?? "",
+      tankName: m["tank_name"]?.toString() ?? "",
+      location: m["location"]?.toString(),
+      qrJson: m["qr_json"]?.toString(),
+      qrImageUrl: m["qr_image_url"]?.toString(),
       inspectionProperties: properties,
-      scaleMin: (m["scale_min"] ?? 0).toDouble(),
-      scaleMax: (m["scale_max"] ?? 100).toDouble(),
-      scaleSide: m["scale_side"],
-      isActive: m["is_active"] ?? true,
-      createdBy: m["created_by"] ?? "",
-      createdAt: m["created_at"] ?? DateTime.now().toIso8601String(),
-      updatedAt: m["updated_at"] ?? DateTime.now().toIso8601String(),
+      scaleMin: parseDouble(m["scale_min"], defaultValue: 0.0),
+      scaleMax: parseDouble(m["scale_max"], defaultValue: 100.0),
+      scaleSide: m["scale_side"]?.toString(),
+      isActive: parseBool(m["is_active"], defaultValue: true),
+      createdBy: m["created_by"]?.toString() ?? "",
+      createdAt: m["created_at"]?.toString() ?? DateTime.now().toIso8601String(),
+      updatedAt: m["updated_at"]?.toString() ?? DateTime.now().toIso8601String(),
       inspectionFrequencyType:
           (m["inspection_frequency_type"] ?? 'daily').toString(),
-      inspectionFrequencyDays: (m["inspection_frequency_days"] as num?)?.toInt() ??
-          (((m["inspection_frequency_type"] ?? 'daily').toString() == 'weekly_once')
-              ? 7
-              : ((m["inspection_frequency_type"] ?? 'daily').toString() ==
-                      'weekly_thrice')
-                  ? 2
-                  : 1),
+      inspectionFrequencyDays: (m["inspection_frequency_days"] is num)
+          ? (m["inspection_frequency_days"] as num).toInt()
+          : int.tryParse(m["inspection_frequency_days"]?.toString() ?? '') ??
+              (((m["inspection_frequency_type"] ?? 'daily').toString() == 'weekly_once')
+                  ? 7
+                  : ((m["inspection_frequency_type"] ?? 'daily').toString() ==
+                          'weekly_thrice')
+                      ? 2
+                      : 1),
       groups: parsedGroups,
     );
   }

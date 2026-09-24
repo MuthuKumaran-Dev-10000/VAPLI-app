@@ -223,15 +223,48 @@ class AssetFolderGroup {
   }
 }
 
+class AlertTitleGroup {
+  final String alertTitle;
+  final List<AssetFolderGroup> assets;
+  final int totalAlerts;
+
+  AlertTitleGroup({
+    required this.alertTitle,
+    required this.assets,
+    required this.totalAlerts,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'alert_title': alertTitle,
+      'assets': assets.map((a) => a.toMap()).toList(),
+      'total_alerts': totalAlerts,
+    };
+  }
+
+  factory AlertTitleGroup.fromMap(Map<dynamic, dynamic> m) {
+    final rawAssets = m['assets'] as List? ?? [];
+    return AlertTitleGroup(
+      alertTitle: m['alert_title']?.toString() ?? 'General Alert',
+      assets: rawAssets
+          .map((a) => AssetFolderGroup.fromMap(Map<dynamic, dynamic>.from(a as Map)))
+          .toList(),
+      totalAlerts: m['total_alerts'] as int? ?? 0,
+    );
+  }
+}
+
 class AlertFolderGroup {
   final String paramLabel;
+  final List<AlertTitleGroup> titleGroups;
   final List<AssetFolderGroup> assets;
   final int totalAlerts;
   final int totalAssets;
 
   AlertFolderGroup({
     required this.paramLabel,
-    required this.assets,
+    required this.titleGroups,
+    this.assets = const [],
     required this.totalAlerts,
     required this.totalAssets,
   });
@@ -239,6 +272,7 @@ class AlertFolderGroup {
   Map<String, dynamic> toMap() {
     return {
       'param_label': paramLabel,
+      'title_groups': titleGroups.map((t) => t.toMap()).toList(),
       'assets': assets.map((a) => a.toMap()).toList(),
       'total_alerts': totalAlerts,
       'total_assets': totalAssets,
@@ -246,9 +280,13 @@ class AlertFolderGroup {
   }
 
   factory AlertFolderGroup.fromMap(Map<dynamic, dynamic> m) {
+    final rawTitles = m['title_groups'] as List? ?? [];
     final rawAssets = m['assets'] as List? ?? [];
     return AlertFolderGroup(
       paramLabel: m['param_label']?.toString() ?? '',
+      titleGroups: rawTitles
+          .map((t) => AlertTitleGroup.fromMap(Map<dynamic, dynamic>.from(t as Map)))
+          .toList(),
       assets: rawAssets
           .map((a) => AssetFolderGroup.fromMap(Map<dynamic, dynamic>.from(a as Map)))
           .toList(),

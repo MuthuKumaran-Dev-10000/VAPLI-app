@@ -3,7 +3,6 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
@@ -17,8 +16,17 @@ import 'package:lubrication_indicator/features/tanks/data/repositories/tank_tree
 import 'package:lubrication_indicator/features/readings/data/models/reading_model.dart';
 import 'package:lubrication_indicator/features/readings/data/repositories/reading_repository.dart';
 import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart';
+import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 import 'package:lubrication_indicator/features/dashboard/data/models/dashboard_stats_model.dart';
-import 'package:lubrication_indicator/core/constants/app_constants.dart';
+import 'package:lubrication_indicator/features/dashboard/data/repositories/dashboard_stats_repository.dart';
+
+class _ReportFormatRef {
+  Future<void> set(dynamic val) async {}
+  Future<void> update(Map<String, dynamic> val) async {}
+  Future<void> remove() async {}
+}
+
+_ReportFormatRef _ref(String path) => _ReportFormatRef();
 
 // Styling Palette (Obsidian/Copper)
 const _kBg = Color(0xFF0C0D0F);
@@ -125,38 +133,12 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
       final tanks = await _tankRepo.getAllTanks();
       final readings = await ReadingRepository().getAllReadings();
       
-      final alertsSnap = await DatabaseModeService.ref('alerts').get();
-      List<AlertModel> alerts = [];
-      if (alertsSnap.exists && alertsSnap.value != null) {
-        final raw = Map<dynamic, dynamic>.from(alertsSnap.value as Map);
-        alerts = raw.entries.map((e) {
-          final map = Map<dynamic, dynamic>.from(e.value as Map);
-          return AlertModel.fromMap(e.key.toString(), map);
-        }).toList();
-      }
-
-      final snap = await DatabaseModeService.ref('settings/report_format').get();
-      
+      List<AlertModel> alerts = await AlertRepository().getAll();
       Map<String, dynamic> configs = {};
-      if (snap.exists && snap.value != null) {
-        final rawMap = snap.value as Map;
-        configs = rawMap.map((key, val) {
-          if (val is Map) {
-            return MapEntry(key.toString(), Map<String, dynamic>.from(val));
-          } else {
-            return MapEntry(key.toString(), val);
-          }
-        });
-      }
-
-      final statsSnap = await DatabaseModeService.ref('dashboard_stats').get();
       Map<String, DashboardStatsModel> statsByTank = {};
-      if (statsSnap.exists && statsSnap.value != null) {
-        final raw = Map<dynamic, dynamic>.from(statsSnap.value as Map);
-        statsByTank = raw.map((key, val) => MapEntry(
-          key.toString(),
-          DashboardStatsModel.fromMap(key.toString(), Map<dynamic, dynamic>.from(val as Map)),
-        ));
+      final statsRepo = DashboardStatsRepository();
+      for (final t in tanks) {
+        statsByTank[t.id] = await statsRepo.getStats(t.id);
       }
 
       setState(() {
@@ -328,7 +310,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
   Future<void> _toggleParam(String paramKey, bool check) async {
     final folderKey = _currentFolder?.id ?? 'root';
     final paramPath = widget.isViolationMode ? 'violation_params' : 'selected_params';
-    final ref = DatabaseModeService.ref('settings/report_format/$folderKey/$paramPath');
+    final ref = _ref('settings/report_format/$folderKey/$paramPath');
     
     final config = _configsByFolder[folderKey] ?? {};
     final selectedParams = Map<String, dynamic>.from(config[paramPath] ?? {});
@@ -379,7 +361,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
   Future<void> _reorderParam(String paramKey, bool up) async {
     final folderKey = _currentFolder?.id ?? 'root';
     final paramPath = widget.isViolationMode ? 'violation_params' : 'selected_params';
-    final ref = DatabaseModeService.ref('settings/report_format/$folderKey/$paramPath');
+    final ref = _ref('settings/report_format/$folderKey/$paramPath');
     
     final config = _configsByFolder[folderKey] ?? {};
     final selectedParams = Map<String, dynamic>.from(config[paramPath] ?? {});
@@ -425,7 +407,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
       final folderKey = _currentFolder?.id ?? 'root';
-      final ref = DatabaseModeService.ref('settings/report_format/$folderKey/strip_text');
+      final ref = _ref('settings/report_format/$folderKey/strip_text');
       
       final config = _configsByFolder[folderKey] ?? {};
       config['strip_text'] = val;
@@ -443,7 +425,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
     });
 
     final folderKey = _currentFolder?.id ?? 'root';
-    final ref = DatabaseModeService.ref('settings/report_format/$folderKey/strip_position');
+    final ref = _ref('settings/report_format/$folderKey/strip_position');
     
     final config = _configsByFolder[folderKey] ?? {};
     config['strip_position'] = val;
@@ -798,7 +780,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                     config['include_timestamp'] = val;
                     _configsByFolder[folderKey] = config;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/$folderKey/include_timestamp');
+                  final ref = _ref('settings/report_format/$folderKey/include_timestamp');
                   await ref.set(val);
                 },
               ),
@@ -822,7 +804,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                     config['pdf_abbreviate'] = val;
                     _configsByFolder[folderKey] = config;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/$folderKey/pdf_abbreviate');
+                  final ref = _ref('settings/report_format/$folderKey/pdf_abbreviate');
                   await ref.set(val);
                 },
               ),
@@ -847,7 +829,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       config['pdf_threshold'] = numVal;
                       _configsByFolder[folderKey] = config;
                     });
-                    final ref = DatabaseModeService.ref('settings/report_format/$folderKey/pdf_threshold');
+                    final ref = _ref('settings/report_format/$folderKey/pdf_threshold');
                     await ref.set(numVal);
                   },
                 ),
@@ -872,7 +854,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                     config['excel_abbreviate'] = val;
                     _configsByFolder[folderKey] = config;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/$folderKey/excel_abbreviate');
+                  final ref = _ref('settings/report_format/$folderKey/excel_abbreviate');
                   await ref.set(val);
                 },
               ),
@@ -896,7 +878,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       config['excel_threshold'] = numVal;
                       _configsByFolder[folderKey] = config;
                     });
-                    final ref = DatabaseModeService.ref('settings/report_format/$folderKey/excel_threshold');
+                    final ref = _ref('settings/report_format/$folderKey/excel_threshold');
                     await ref.set(numVal);
                   },
                 ),
@@ -920,9 +902,9 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                   setState(() {
                     _configsByFolder['consolidate_uncommon'] = val;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/consolidate_uncommon');
+                  final ref = _ref('settings/report_format/consolidate_uncommon');
                   await ref.set(val);
-                  final verRef = DatabaseModeService.ref('settings/report_format/version');
+                  final verRef = _ref('settings/report_format/version');
                   await verRef.set(2);
                 },
               ),
@@ -960,10 +942,10 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['uncommon_threshold'] = numVal;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/uncommon_threshold');
+                      final ref = _ref('settings/report_format/uncommon_threshold');
                       await ref.set(numVal);
                       
-                      final verRef = DatabaseModeService.ref('settings/report_format/version');
+                      final verRef = _ref('settings/report_format/version');
                       await verRef.set(2);
                     },
                   ),
@@ -987,7 +969,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                   setState(() {
                     _configsByFolder['compaction_enabled'] = val;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/compaction_enabled');
+                  final ref = _ref('settings/report_format/compaction_enabled');
                   await ref.set(val);
                 },
               ),
@@ -1010,7 +992,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                   setState(() {
                     _configsByFolder['abbr_titles_enabled'] = val;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/abbr_titles_enabled');
+                  final ref = _ref('settings/report_format/abbr_titles_enabled');
                   await ref.set(val);
                 },
               ),
@@ -1090,7 +1072,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                   setState(() {
                     _configsByFolder['compact_group_summary'] = val;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/compact_group_summary');
+                  final ref = _ref('settings/report_format/compact_group_summary');
                   await ref.set(val);
                 },
               ),
@@ -1121,7 +1103,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['group_coverage_threshold'] = numVal;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/group_coverage_threshold');
+                      final ref = _ref('settings/report_format/group_coverage_threshold');
                       await ref.set(numVal);
                     },
                   ),
@@ -1152,7 +1134,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['pending_asset_cols'] = numVal;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/pending_asset_cols');
+                      final ref = _ref('settings/report_format/pending_asset_cols');
                       await ref.set(numVal);
                     },
                   ),
@@ -1183,7 +1165,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['max_groups_per_row'] = numVal;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/max_groups_per_row');
+                      final ref = _ref('settings/report_format/max_groups_per_row');
                       await ref.set(numVal);
                     },
                   ),
@@ -1214,7 +1196,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['group_card_padding'] = dVal;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/group_card_padding');
+                      final ref = _ref('settings/report_format/group_card_padding');
                       await ref.set(dVal);
                     },
                   ),
@@ -1244,7 +1226,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                       setState(() {
                         _configsByFolder['group_card_border_style'] = val;
                       });
-                      final ref = DatabaseModeService.ref('settings/report_format/group_card_border_style');
+                      final ref = _ref('settings/report_format/group_card_border_style');
                       await ref.set(val);
                     },
                   ),
@@ -1269,7 +1251,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                   setState(() {
                     _configsByFolder['empty_space_optimization'] = val;
                   });
-                  final ref = DatabaseModeService.ref('settings/report_format/empty_space_optimization');
+                  final ref = _ref('settings/report_format/empty_space_optimization');
                   await ref.set(val);
                 },
               ),
@@ -1294,7 +1276,7 @@ class _ReportFormatConfigScreenState extends State<ReportFormatConfigScreen> {
                     setState(() {
                       _configsByFolder['report_notes'] = val;
                     });
-                    final ref = DatabaseModeService.ref('settings/report_format/report_notes');
+                    final ref = _ref('settings/report_format/report_notes');
                     await ref.set(val);
                   },
                 ),

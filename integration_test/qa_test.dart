@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,7 +12,6 @@ import 'package:lubrication_indicator/core/services/client_context_service.dart'
 import 'package:lubrication_indicator/core/services/client_repository.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/core/services/expression_engine.dart';
-import 'package:lubrication_indicator/core/services/firebase_env_options.dart';
 import 'package:lubrication_indicator/core/utils/hash_util.dart';
 
 import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart';
@@ -153,9 +150,6 @@ void main() {
     print('[QA] setUpAll: load env');
     await dotenv.load(fileName: '.env/.env');
 
-    print('[QA] setUpAll: Firebase init');
-    await Firebase.initializeApp(options: FirebaseEnvOptions.currentPlatform);
-
     print('[QA] setUpAll: DB mode init');
     await DatabaseModeService.init();
     await DatabaseModeService.setDevelopment(true);
@@ -165,15 +159,6 @@ void main() {
 
   tearDownAll(() async {
     print('[QA] tearDownAll: cleanup');
-    try {
-      if (client != null) {
-        await FirebaseDatabase.instance.ref('testDB/${client!.dbKey}').remove();
-        await FirebaseDatabase.instance.ref('testDB/clients/${client!.id}').remove();
-      }
-      for (final uid in createdUserIds) {
-        await FirebaseDatabase.instance.ref('testDB/users/$uid').remove();
-      }
-    } catch (_) {}
   });
 
   testWidgets(
@@ -255,18 +240,6 @@ void main() {
       await tc('client listed in getAllClients', () async {
         final all = await clientRepo.getAllClients();
         return all.any((c) => c.id == client!.id);
-      });
-      await tc('client meta node exists', () async {
-        final snap = await FirebaseDatabase.instance.ref('testDB/${client!.dbKey}/meta').get();
-        return snap.exists;
-      });
-      await tc('client bootstrap users exists', () async {
-        final snap = await FirebaseDatabase.instance.ref('testDB/${client!.dbKey}/users').get();
-        return snap.exists;
-      });
-      await tc('client bootstrap session settings exists', () async {
-        final snap = await FirebaseDatabase.instance.ref('testDB/${client!.dbKey}/system_settings/session').get();
-        return snap.exists;
       });
       await tc('set active client context', () async {
         await ClientContextService.setActiveClient(client!);

@@ -87,11 +87,6 @@ class _HomeScreenState extends State<HomeScreen>
       length: 3,
       vsync: this,
     );
-    _tabCtrl.addListener(() {
-      if (!_tabCtrl.indexIsChanging && mounted) {
-        setState(() => _tabRefreshTick++);
-      }
-    });
 
     _init();
   }
@@ -109,6 +104,10 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       return;
+    }
+
+    if (mounted) {
+      setState(() {});
     }
 
     _loadTanks();
@@ -422,16 +421,17 @@ class _HomeScreenState extends State<HomeScreen>
 
           // ADMIN ONLY
           if (_currentUser != null &&
-              AccessControlService.can(
-                _currentUser,
-                AccessControlService.pOpenAdminPage,
-              ))
+              (AccessControlService.isAdminLike(_currentUser) ||
+                  AccessControlService.can(
+                    _currentUser,
+                    AccessControlService.pOpenAdminPage,
+                  )))
             IconButton(
               icon: const Icon(
                 Icons.admin_panel_settings_outlined,
                 color: AppColors.warning,
               ),
-              tooltip: 'Admin',
+              tooltip: 'Admin Dashboard',
               onPressed: () {
                 Navigator.push(
                   context,
@@ -524,19 +524,18 @@ class _HomeScreenState extends State<HomeScreen>
             //   onScanQr: _scanQr,
             // ),
             TankInputBrowser(
-              key: ValueKey('input-$_tabRefreshTick-${_activeClient?.id ?? 'none'}'),
+              key: ValueKey('input-${_activeClient?.id ?? 'none'}'),
               currentUser: _currentUser,
               rootTitleOverride: _activeClient?.name ?? 'Client',
-              // clientNameOverride: _activeClient?.name,
               rootFolderIdOverride: _activeClient?.rootFolderId,
               onRootTap: _openClientPicker,
             ),
             TrendsScreen(
-              key: ValueKey('trends-$_tabRefreshTick-${_activeClient?.id ?? 'none'}'),
+              key: ValueKey('trends-${_activeClient?.id ?? 'none'}'),
               tanks: _tanks,
             ),
             DashboardTab(
-              key: ValueKey('dash-$_tabRefreshTick-${_activeClient?.id ?? 'none'}'),
+              key: ValueKey('dash-${_activeClient?.id ?? 'none'}'),
             ),
           ],
         ),

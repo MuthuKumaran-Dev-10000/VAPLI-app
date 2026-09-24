@@ -68,13 +68,13 @@ class TankNode {
 
   factory TankNode.fromMap(String id, Map<dynamic, dynamic> m) => TankNode(
         id: id,
-        type: m['type']?.toString() ?? 'folder',
+        type: (m['type'] ?? m['node_type'])?.toString() ?? 'folder',
         name: m['name']?.toString() ?? '',
         description: m['description']?.toString(),
         zone: m['zone']?.toString(),
         parentId: m['parent_id']?.toString(),
         path: m['path']?.toString() ?? '',
-        order: (m['order'] as num?)?.toInt() ?? 0,
+        order: ((m['order'] ?? m['sort_order']) as num?)?.toInt() ?? 0,
         tankId: m['tank_id']?.toString(),
         createdAt:
             m['created_at']?.toString() ?? DateTime.now().toIso8601String(),

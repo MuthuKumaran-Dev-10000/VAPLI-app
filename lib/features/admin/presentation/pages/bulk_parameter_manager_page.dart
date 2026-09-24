@@ -3,7 +3,6 @@
 // CENTRALIZED BULK EDIT FOR FOLDER-LEVEL PARAMETERS
 // ══════════════════════════════════════════════════════════════════════════════
 
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lubrication_indicator/core/services/audit_log_service.dart';
@@ -307,54 +306,22 @@ class _BulkParameterManagerPageState extends State<BulkParameterManagerPage> {
 
         propsList[idx] = newParam;
 
-        final pathProps = DatabaseModeService.path('tanks/${tank.id}/inspection_properties');
-        final pathUpdated = DatabaseModeService.path('tanks/${tank.id}/updated_at');
-
-        updates[pathProps] = propsList;
-        updates[pathUpdated] = nowStr;
-
-        debugPrint('Bulk update: queued tank ${tank.tankName} (${tank.id}) properties at path: $pathProps');
-
-        successLocal++;
-
-        // Audit log for this tank
-        await AuditLogService.record(
-          operation: 'bulk_update_tank_parameter',
-          entityType: 'inspection_parameter',
-          entityId: origId.toString(),
-          entityName: newParam['label']?.toString(),
-          actorId: user?.id,
-          actorUsername: user?.username,
-          actorName: user?.fullName,
-          actorRole: user?.role,
-          tab: 'tanks',
-          summary: 'Bulk updated parameter "${newParam['label']}" in tank "${tank.tankName}"',
-          details: {
-            'tank_id': tank.id,
-            'tank_name': tank.tankName,
-            'parameter_id': origId,
-            'parameter_label': newParam['label'],
-          },
+        await TankRepository().updateTank(
+          id: tank.id,
+          tankCode: tank.tankCode,
+          tankName: tank.tankName,
+          location: tank.location ?? '',
+          scaleMax: tank.scaleMax,
+          scaleSide: tank.scaleSide,
+          qrImageUrl: tank.qrImageUrl,
+          properties: propsList,
         );
-      } catch (e) {
-        debugPrint('Bulk update: error processing tank ${occ.tank.tankName}: $e');
-        errorLocal++;
-      }
-    }
 
-    if (updates.isNotEmpty) {
-      try {
-        if (mounted) {
-          setState(() => _executionStatus = 'Writing changes to database…');
-        }
-        debugPrint('Bulk update: executing Firebase batch update with ${updates.length} keys');
-        await FirebaseDatabase.instance.ref().update(updates);
-        debugPrint('Bulk update: Firebase batch write succeeded');
+        debugPrint('Bulk update: saved tank ${tank.tankName} (${tank.id}) properties via API');
+        successLocal++;
       } catch (e) {
-        debugPrint('Bulk update: Firebase batch write failed: $e');
-        errorLocal = selectedOccurrences.length;
-        successLocal = 0;
-        _showSnack('Firebase batch write failed: $e', _kDanger);
+        debugPrint('Bulk update: error updating tank ${occ.tank.tankName}: $e');
+        errorLocal++;
       }
     }
 

@@ -30,6 +30,7 @@
 //   tooltipRoundedRadius (removed) → tooltipBorderRadius: BorderRadius.circular(8)
 // ══════════════════════════════════════════════════════════════════════════════
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -49,7 +50,9 @@ import 'package:http/http.dart' as http;
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/features/readings/data/models/reading_model.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
+import 'package:lubrication_indicator/features/tanks/data/repositories/tank_repository.dart';
 import 'package:lubrication_indicator/features/readings/data/repositories/reading_repository.dart';
+import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 part 'widgets/_qr_scan_page.dart';
 part 'widgets/_qr_scan_page_state.dart';
 part 'widgets/_overlay_painter.dart';
@@ -111,7 +114,9 @@ bool _isGraphable(String? type) =>
     type == 'number' ||
     type == 'slider' ||
     type == 'dual_text' ||
-    type == 'dropdown';
+    type == 'dropdown' ||
+    type == 'text' ||
+    type == 'multiline';
 
 String _typeShort(String? type) {
   switch (type) {

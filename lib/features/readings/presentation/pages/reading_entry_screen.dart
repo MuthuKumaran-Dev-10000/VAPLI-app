@@ -27,8 +27,6 @@ import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -41,6 +39,7 @@ import 'package:mime/mime.dart';
 import 'package:lubrication_indicator/core/constants/app_constants.dart';
 import 'package:lubrication_indicator/core/services/access_control_service.dart';
 import 'package:lubrication_indicator/core/services/audit_log_service.dart';
+import 'package:lubrication_indicator/core/services/client_context_service.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/core/services/expression_engine.dart';
 import 'package:lubrication_indicator/core/services/env_config.dart';
@@ -48,7 +47,10 @@ import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart
 import 'package:lubrication_indicator/features/auth/data/models/user_model.dart';
 import 'package:lubrication_indicator/features/dashboard/data/repositories/dashboard_stats_repository.dart';
 import 'package:lubrication_indicator/features/readings/data/repositories/reading_repository.dart';
-import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart'; // 🔖 Added for Alert Lifecycle Bug Fix
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:lubrication_indicator/core/api/api_client.dart';
+import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
+import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart';
 import 'package:lubrication_indicator/features/dashboard_folders/dashboard_alerts_display_model.dart';
 import 'image_marker_screen.dart';
 part 'reading_entry_state.dart';

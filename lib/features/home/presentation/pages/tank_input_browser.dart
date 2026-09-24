@@ -41,10 +41,9 @@ import 'package:lubrication_indicator/features/tanks/data/repositories/tank_tree
 import 'package:lubrication_indicator/features/readings/presentation/pages/reading_entry_screen.dart';
 import 'package:lubrication_indicator/features/readings/data/repositories/reading_repository.dart';
 import 'package:lubrication_indicator/features/dashboard/data/repositories/dashboard_stats_repository.dart';
-import 'package:lubrication_indicator/features/dashboard/data/models/dashboard_stats_model.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/features/alerts/data/models/alert_model.dart';
+import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 import 'home_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,24 +212,30 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
         '[InputBrowser] Subscribe: folder=${_currentFolder?.id ?? 'ROOT'}');
 
     _sub = _treeRepo.watchChildren(_currentFolder?.id).listen((nodes) async {
-      // Load tank models for leaf nodes not yet cached
-      final missing = nodes
-          .where(
-            (n) =>
-                n.isLeaf &&
-                n.tankId != null &&
-                !_tankCache.containsKey(n.tankId),
-          )
-          .toList();
-      for (final n in missing) {
-        final t = await _tankRepo.getTankById(n.tankId!);
-        if (t != null && mounted) _tankCache[n.tankId!] = t;
-      }
-      if (mounted) {
-        setState(() {
-          _nodes = nodes;
-          _loading = false;
-        });
+      try {
+        final missing = nodes
+            .where(
+              (n) =>
+                  n.isLeaf &&
+                  n.tankId != null &&
+                  !_tankCache.containsKey(n.tankId),
+            )
+            .toList();
+        for (final n in missing) {
+          try {
+            final t = await _tankRepo.getTankById(n.tankId!);
+            if (t != null && mounted) _tankCache[n.tankId!] = t;
+          } catch (e) {
+            debugPrint('[InputBrowser] Error fetching tank ${n.tankId}: $e');
+          }
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _nodes = nodes;
+            _loading = false;
+          });
+        }
       }
       _fetchAllNodes();
     }, onError: (e) {
@@ -324,54 +329,22 @@ class _TankInputBrowserState extends State<TankInputBrowser> {
     });
   }
 
-  DatabaseReference _ref(String path) => DatabaseModeService.ref(path);
-
   void _subscribeToActiveAlerts(String tankId) {
     _activeAlertsSub?.cancel();
-    _activeAlertsSub = _ref('alerts')
-        .orderByChild('tank_id')
-        .equalTo(tankId)
-        .onValue
-        .listen((event) {
+    _activeAlertsSub = Stream.fromFuture(AlertRepository().getAll()).listen((allAlerts) {
       if (!mounted) return;
-      if (!event.snapshot.exists || event.snapshot.value == null || event.snapshot.value is! Map) {
-        setState(() {
-          _activeAlerts = [];
-          _activeAlertImages = {};
-        });
-        return;
-      }
-      final raw = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
-      final list = <AlertModel>[];
-      final images = <String, String>{};
-
-      for (final e in raw.entries) {
-        if (e.value is! Map) continue;
-        final alertId = e.key.toString();
-        final alertMap = Map<dynamic, dynamic>.from(e.value as Map);
-        final alert = AlertModel.fromMap(alertId, alertMap);
-
-        if (!alert.resolved && alert.status.toLowerCase() != 'completed') {
-          list.add(alert);
-          final imgUrl = alertMap['image_url']?.toString() ?? '';
-          if (imgUrl.isNotEmpty) {
-            images[alertId] = imgUrl;
-          }
-        }
-      }
-
-      list.sort((a, b) => b.capturedAt.compareTo(a.capturedAt));
-
+      final filtered = allAlerts.where((a) => a.tankId == tankId && !a.resolved).toList();
+      filtered.sort((a, b) => b.capturedAt.compareTo(a.capturedAt));
       setState(() {
-        _activeAlerts = list;
-        _activeAlertImages = images;
+        _activeAlerts = filtered;
+        _activeAlertImages = {};
       });
 
-      if (list.isNotEmpty && !_hasShownInitialAlertPopup) {
+      if (filtered.isNotEmpty && !_hasShownInitialAlertPopup) {
         _hasShownInitialAlertPopup = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _playWarningSoundAndVibration();
-          _showActiveAlertsWarningDialog(list);
+          _showActiveAlertsWarningDialog(filtered);
         });
       }
     });

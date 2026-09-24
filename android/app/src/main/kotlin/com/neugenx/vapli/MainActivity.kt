@@ -1,4 +1,4 @@
-package com.lubeindicator.myapp
+package com.neugenx.vapli
 
 import android.media.MediaScannerConnection
 import android.content.Intent

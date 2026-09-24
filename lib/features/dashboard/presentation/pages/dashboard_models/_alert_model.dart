@@ -55,6 +55,17 @@ class _AlertModel {
   final List<String> completedPhotoUrls;
 
   factory _AlertModel.fromMap(Map<dynamic, dynamic> m) {
+    bool parseBool(dynamic val, {bool defaultValue = false}) {
+      if (val == null) return defaultValue;
+      if (val is bool) return val;
+      if (val is num) return val != 0;
+      if (val is String) {
+        final s = val.toLowerCase().trim();
+        return s == 'true' || s == '1';
+      }
+      return defaultValue;
+    }
+
     final rawUrls = m['completed_photo_urls'];
     final List<String> parsedUrls = (rawUrls is List)
         ? rawUrls.map((e) => e.toString()).toList()
@@ -64,31 +75,29 @@ class _AlertModel {
 
     return _AlertModel(
       id: m['id']?.toString() ?? '',
-      alertTitle: m['alert_title']?.toString() ?? '',
+      alertTitle: (m['alert_title'] ?? m['constraint_label'])?.toString() ?? '',
       message: m['message']?.toString() ?? '',
-      severity: m['severity']?.toString() ?? 'warning',
-      op: m['op']?.toString() ?? 'null',
+      severity: (m['severity'] ?? m['constraint_severity'])?.toString() ?? 'warning',
+      op: (m['op'] ?? m['constraint_op'])?.toString() ?? 'null',
       tankId: m['tank_id']?.toString() ?? '',
       tankName: m['tank_name']?.toString() ?? '',
       tankCode: m['tank_code']?.toString() ?? '',
-      paramId: m['param_id']?.toString() ?? '',
-      paramLabel: m['param_label']?.toString() ?? '',
-      paramValue: m['param_value']?.toString() ?? '',
+      paramId: (m['param_id'] ?? m['constraint_id'])?.toString() ?? '',
+      paramLabel: (m['param_label'] ?? m['constraint_label'])?.toString() ?? '',
+      paramValue: (m['param_value'] ?? m['violated_value'])?.toString() ?? '',
       capturedBy: m['captured_by']?.toString() ?? '',
       capturedByName: m['captured_by_name']?.toString() ?? '',
       imageUrl: m['image_url']?.toString() ?? '',
       constraintId: m['constraint_id']?.toString() ?? '',
-      timestamp: m['timestamp']?.toString() ?? '',
-      acknowledged: m['acknowledged'] == true,
+      timestamp: (m['timestamp'] ?? m['captured_at'])?.toString() ?? '',
+      acknowledged: parseBool(m['acknowledged'] ?? m['resolved']),
       isLive: m['live'] == true,
       status: m['status']?.toString() ?? 'active',
-      readingId: m['reading_id']?.toString() ?? '', // 🔖 Added for lookup in reports
-      ifThen: m['if_then']?.toString() ?? '', // 🔖 Added for IF-THEN detail
+      readingId: m['reading_id']?.toString() ?? '',
+      ifThen: m['if_then']?.toString() ?? '',
       completedDescription: m['completed_description']?.toString() ?? '',
       completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
       completedPhotoUrls: parsedUrls,
     );
   }
 }
-
-// Completed task model (mirrors Firebase completed_tasks/ node)

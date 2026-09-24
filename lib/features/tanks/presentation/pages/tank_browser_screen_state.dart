@@ -56,7 +56,7 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
         for (final n in nodes) {
           if (n.isLeaf) {
             final tid = n.tankId;
-            if (tid != null && !_tankCache.containsKey(tid)) {
+            if (tid != null) {
               final t = await _tankRepo.getTankById(tid);
               if (t != null) _tankCache[tid] = t;
             }
@@ -443,6 +443,9 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
 
         await _tankRepo.deleteTank(
           node.tankId!,
+        );
+        await _treeRepo.deleteNode(
+          node.id,
         );
         await widget.onAudit?.call('delete_tank', {
           'node_id': node.id,

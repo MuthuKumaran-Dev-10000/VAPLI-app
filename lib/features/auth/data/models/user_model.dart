@@ -31,6 +31,17 @@ class UserModel {
     required this.createdAt,
   });
 
+  static bool _parseBool(dynamic val, {bool defaultValue = true}) {
+    if (val == null) return defaultValue;
+    if (val is bool) return val;
+    if (val is num) return val != 0;
+    if (val is String) {
+      final s = val.toLowerCase().trim();
+      return s == 'true' || s == '1';
+    }
+    return defaultValue;
+  }
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'username': username,
@@ -49,23 +60,25 @@ class UserModel {
       };
 
   factory UserModel.fromMap(Map<String, dynamic> m) => UserModel(
-        id: m['id'] ?? '',
-        username: m['username'] ?? '',
-        fullName: m['full_name'] ?? '',
-        passwordHash: m['password_hash'] ?? '',
-        role: m['role'] ?? 'user',
-        phone: m['phone'],
-        email: m['email'],
-        privileges: ((m['privileges'] as Map?) ?? const {})
-            .map((k, v) => MapEntry(k.toString(), v == true)),
-        clientIds: ((m['client_ids'] as List?) ?? const [])
+        id: (m['id'] ?? '').toString(),
+        username: (m['username'] ?? '').toString(),
+        fullName: (m['full_name'] ?? m['fullName'] ?? m['display_name'] ?? '').toString(),
+        passwordHash: (m['password_hash'] ?? m['passwordHash'] ?? '').toString(),
+        role: (m['role'] ?? 'user').toString(),
+        phone: m['phone']?.toString(),
+        email: m['email']?.toString(),
+        privileges: ((m['privileges'] as Map?) ?? (m['privileges_json'] as Map?) ?? const {})
+            .map((k, v) => MapEntry(k.toString(), _parseBool(v, defaultValue: false))),
+        clientIds: ((m['client_ids'] as List?) ?? (m['client_ids_json'] as List?) ?? const [])
             .map((e) => e.toString())
             .where((e) => e.trim().isNotEmpty)
             .toList(),
-        failedLoginAttempts: m['failed_login_attempts'] ?? 0,
-        lockedUntil: m['locked_until'],
-        isActive: m['is_active'] ?? true,
-        lastLoginAt: m['last_login_at'],
-        createdAt: m['created_at'] ?? DateTime.now().toIso8601String(),
+        failedLoginAttempts: (m['failed_login_attempts'] is num)
+            ? (m['failed_login_attempts'] as num).toInt()
+            : int.tryParse(m['failed_login_attempts']?.toString() ?? '0') ?? 0,
+        lockedUntil: m['locked_until']?.toString(),
+        isActive: _parseBool(m['is_active'], defaultValue: true),
+        lastLoginAt: m['last_login_at']?.toString(),
+        createdAt: (m['created_at'] ?? DateTime.now().toIso8601String()).toString(),
       );
 }

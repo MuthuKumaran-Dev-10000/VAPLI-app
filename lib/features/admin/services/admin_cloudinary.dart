@@ -1,64 +1,24 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:http_parser/http_parser.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
-import 'package:lubrication_indicator/core/services/env_config.dart';
+import 'package:lubrication_indicator/core/api/api_client.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Cloudinary config (shared across file)
-// ─────────────────────────────────────────────────────────────────────────────
-const String _folderQr =
-    'lubricationindicator_qr'; // same folder as create_tank_screen
-const String folderMain =
-    'lubricationindicator'; // original folder kept for download share
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cloudinary helpers (module-level, shared by card + duplicate logic)
-// ─────────────────────────────────────────────────────────────────────────────
-String _cloudSignature(String timestamp, String folder) {
-  final params = 'folder=$folder&timestamp=$timestamp';
-  return sha1
-      .convert(utf8.encode('$params${EnvConfig.cloudinaryApiSecret}'))
-      .toString();
-}
+const String _folderQr = 'qr';
+const String folderMain = 'general';
 
 Future<String> uploadBytesToCloudinary(Uint8List bytes,
     {String folder = _folderQr}) async {
-  debugPrint('[Cloudinary] Uploading to folder=$folder bytes=${bytes.length}');
-  final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
-  final req = http.MultipartRequest(
-    'POST',
-    Uri.parse(
-      'https://api.cloudinary.com/v1_1/${EnvConfig.cloudinaryCloudName}/image/upload',
-    ),
-  );
-  req.fields['api_key'] = EnvConfig.cloudinaryApiKey;
-  req.fields['timestamp'] = ts;
-  req.fields['folder'] = folder;
-  req.fields['signature'] = _cloudSignature(ts, folder);
-  req.files.add(http.MultipartFile.fromBytes(
-    'file',
-    bytes,
-    filename: 'tank_qr_${DateTime.now().millisecondsSinceEpoch}.png',
-    contentType: MediaType('image', 'png'),
-  ));
-
-  final res = await http.Response.fromStream(await req.send());
-  debugPrint(
-      '[Cloudinary] Response ${res.statusCode}: ${res.body.substring(0, res.body.length.clamp(0, 300))}');
-  if (res.statusCode != 200)
-    throw Exception('QR upload failed (${res.statusCode})');
-  final url = (json.decode(res.body) as Map)['secure_url'] as String;
-  debugPrint('[Cloudinary] Uploaded → $url');
+  debugPrint('[ServerUpload] Uploading bytes=${bytes.length} category=$folder');
+  final filename = 'tank_qr_${DateTime.now().millisecondsSinceEpoch}.png';
+  final url = await ApiClient.uploadBytes(bytes, filename: filename, category: folder.contains('qr') ? 'qr' : folder);
+  debugPrint('[ServerUpload] Uploaded → $url');
   return url;
 }
 
-/// Renders a QR from identity data, uploads to Cloudinary, returns the URL.
+/// Renders a QR from identity data, uploads to backend, returns the URL.
 Future<String> _generateQrAndUpload({
   required ScreenshotController shotCtrl,
   required String tankCode,

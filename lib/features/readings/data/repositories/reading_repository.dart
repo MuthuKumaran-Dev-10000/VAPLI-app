@@ -1,20 +1,94 @@
-// reading_repository.dart
-// ══════════════════════════════════════════════════════════════════════════════
-// CHANGES:
-//   ✅ saveReading() now accepts `inspectionValues` and passes it to the model
-//   ✅ All existing query helpers (watchReadingsForTank, getReadingsInRange,
-//      getAllReadings) untouched — they pull fromMap() which already handles
-//      the new field gracefully (defaults to {} when absent in old records)
-// ══════════════════════════════════════════════════════════════════════════════
-
-import 'package:firebase_database/firebase_database.dart';
-
-import 'package:lubrication_indicator/core/constants/app_constants.dart';
-import 'package:lubrication_indicator/core/services/database_mode_service.dart';
+import 'dart:async';
+import 'package:lubrication_indicator/core/api/api_client.dart';
+import 'package:lubrication_indicator/core/services/client_context_service.dart';
 import 'package:lubrication_indicator/core/utils/hash_util.dart';
 import '../models/reading_model.dart';
 
 class ReadingRepository {
+  static final ReadingRepository _instance = ReadingRepository._internal();
+  factory ReadingRepository() => _instance;
+  ReadingRepository._internal();
+
+  final _readingUpdateController = StreamController<void>.broadcast();
+
+  void notifySubscribers() {
+    if (!_readingUpdateController.isClosed) {
+      _readingUpdateController.add(null);
+    }
+  }
+
+  Future<String> _getClientId() async {
+    final client = await ClientContextService.getActiveClient();
+    return client?.id ?? 'dummy_client_id';
+  }
+
+  Stream<List<ReadingModel>> watchAllReadings() {
+    late StreamController<List<ReadingModel>> localController;
+    StreamSubscription? sub;
+
+    void update() async {
+      try {
+        final all = await getAllReadings();
+        if (!localController.isClosed) {
+          localController.add(all);
+        }
+      } catch (err) {
+        if (!localController.isClosed) {
+          localController.addError(err);
+        }
+      }
+    }
+
+    localController = StreamController<List<ReadingModel>>(
+      onListen: () {
+        update();
+        sub = _readingUpdateController.stream.listen((_) {
+          update();
+        });
+      },
+      onCancel: () {
+        sub?.cancel();
+        localController.close();
+      },
+    );
+
+    return localController.stream;
+  }
+
+  Stream<List<ReadingModel>> watchReadingsForTank(String tankId) {
+    late StreamController<List<ReadingModel>> localController;
+    StreamSubscription? sub;
+
+    void update() async {
+      try {
+        final all = await getAllReadings();
+        final filtered = all.where((r) => r.tankId == tankId).toList();
+        if (!localController.isClosed) {
+          localController.add(filtered);
+        }
+      } catch (err) {
+        if (!localController.isClosed) {
+          localController.addError(err);
+        }
+      }
+    }
+
+    localController = StreamController<List<ReadingModel>>(
+      onListen: () {
+        update();
+        sub = _readingUpdateController.stream.listen((_) {
+          update();
+        });
+      },
+      onCancel: () {
+        sub?.cancel();
+        localController.close();
+      },
+    );
+
+    return localController.stream;
+  }
+
   Future<ReadingModel> saveReading({
     required String tankId,
     required String tankName,
@@ -22,45 +96,50 @@ class ReadingRepository {
     required String capturedBy,
     required String capturedByName,
     String? capturedAtStart,
-    String? capturedAt, // 🔖 Added for Historical Upload Permission
+    String? capturedAt,
     Map<String, dynamic>? inspectionValues,
     String? imageUrl,
   }) async {
+    final clientId = await _getClientId();
     final id = HashUtil.generateId();
 
-    final reading = ReadingModel(
-      id: id,
-      tankId: tankId,
-      tankSnapshotName: tankName,
-      finalLevel: level,
-      inspectionValues: inspectionValues ?? {},
-      imageUrl: imageUrl,
-      source: "manual",
-      capturedBy: capturedBy,
-      capturedByName: capturedByName,
-      capturedAtStart: capturedAtStart,
-      capturedAt: capturedAt ?? DateTime.now().toIso8601String(), // 🔖 Added for Historical Upload Permission
-    );
+    final payload = {
+      'id': id,
+      'tank_id': tankId,
+      'tank_name': tankName,
+      'final_level': level,
+      'captured_by': capturedBy,
+      'captured_by_name': capturedByName,
+      'captured_at_start': capturedAtStart,
+      'captured_at': capturedAt ?? DateTime.now().toIso8601String(),
+      'inspection_values': inspectionValues ?? {},
+      'image_url': imageUrl,
+      'source': 'manual',
+    };
 
-    await DatabaseModeService.ref("${AppConstants.readingsPath}/$id")
-        .set(reading.toMap());
+    final response = await ApiClient.post('/clients/$clientId/tanks/$tankId/readings', payload);
 
-    return reading;
-  }
-
-  Stream<List<ReadingModel>> watchReadingsForTank(String tankId) {
-    return DatabaseModeService.ref(AppConstants.readingsPath)
-        .orderByChild("tank_id")
-        .equalTo(tankId)
-        .onValue
-        .map((event) {
-      if (!event.snapshot.exists) return [];
-      final map = Map<String, dynamic>.from(event.snapshot.value as Map);
-      return map.values
-          .map((v) => ReadingModel.fromMap(Map<String, dynamic>.from(v as Map)))
-          .toList()
-        ..sort((a, b) => a.capturedAt.compareTo(b.capturedAt));
-    });
+    if (response is Map && response['success'] == true) {
+      notifySubscribers();
+      return ReadingModel(
+        id: id,
+        tankId: tankId,
+        tankSnapshotName: tankName,
+        finalLevel: level,
+        inspectionValues: inspectionValues ?? {},
+        imageUrl: imageUrl,
+        source: "manual",
+        capturedBy: capturedBy,
+        capturedByName: capturedByName,
+        capturedAtStart: capturedAtStart,
+        capturedAt: capturedAt ?? DateTime.now().toIso8601String(),
+      );
+    } else {
+      final msg = (response is Map && response['error'] != null)
+          ? response['error']['message']
+          : 'Failed to save reading';
+      throw Exception(msg);
+    }
   }
 
   Future<List<ReadingModel>> getReadingsInRange({
@@ -68,17 +147,9 @@ class ReadingRepository {
     required DateTime from,
     required DateTime to,
   }) async {
-    final snap = await DatabaseModeService.ref(AppConstants.readingsPath)
-        .orderByChild("tank_id")
-        .equalTo(tankId)
-        .get();
-
-    if (!snap.exists) return [];
-
-    final map = Map<String, dynamic>.from(snap.value as Map);
-    final readings = map.values
-        .map((v) => ReadingModel.fromMap(Map<String, dynamic>.from(v as Map)))
-        .where((r) {
+    final all = await getAllReadings();
+    final readings = all.where((r) {
+      if (r.tankId != tankId) return false;
       final t = DateTime.tryParse(r.capturedAt);
       if (t == null) return false;
       return !t.toLocal().isBefore(from.toLocal()) && !t.toLocal().isAfter(to.toLocal());
@@ -89,12 +160,24 @@ class ReadingRepository {
   }
 
   Future<List<ReadingModel>> getAllReadings() async {
-    final snap = await DatabaseModeService.ref(AppConstants.readingsPath).get();
-    if (!snap.exists) return [];
-    final map = Map<String, dynamic>.from(snap.value as Map);
-    return map.values
-        .map((v) => ReadingModel.fromMap(Map<String, dynamic>.from(v as Map)))
-        .toList()
-      ..sort((a, b) => b.capturedAt.compareTo(a.capturedAt));
+    final clientId = await _getClientId();
+    final response = await ApiClient.get('/clients/$clientId/readings');
+    if (response is Map && response['success'] == true && response['data'] != null) {
+      final list = response['data'] as List;
+      return list
+          .map((item) => ReadingModel.fromMap(Map<String, dynamic>.from(item)))
+          .toList()
+        ..sort((a, b) => b.capturedAt.compareTo(a.capturedAt));
+    }
+    return [];
+  }
+
+  Future<ReadingModel?> getLastReading(String tankId) async {
+    final clientId = await _getClientId();
+    final response = await ApiClient.get('/clients/$clientId/tanks/$tankId/readings/last');
+    if (response is Map && response['success'] == true && response['data'] != null) {
+      return ReadingModel.fromMap(Map<String, dynamic>.from(response['data']));
+    }
+    return null;
   }
 }

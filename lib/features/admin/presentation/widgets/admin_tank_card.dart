@@ -1,14 +1,15 @@
 import 'dart:io';
 
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:lubrication_indicator/core/api/api_client.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
+import 'package:lubrication_indicator/features/tanks/data/repositories/tank_repository.dart';
 
 import 'package:lubrication_indicator/features/admin/presentation/widgets/admin_action_bar.dart';
 import 'package:lubrication_indicator/features/admin/services/admin_cloudinary.dart';
@@ -138,21 +139,9 @@ class TankAdminCardState extends State<TankAdminCard> {
   Future<void> _downloadQr() => _run('Download', () async {
         final t = widget.tank;
         debugPrint('[Download] Generating printable QR for ${t.tankCode}');
-        final latestSnap = await DatabaseModeService.ref('tanks/${t.id}').get();
-        final latest = latestSnap.exists && latestSnap.value is Map
-            ? Map<String, dynamic>.from(latestSnap.value as Map)
-            : <String, dynamic>{};
-        final qrData = (latest['qr_json']?.toString().isNotEmpty ?? false)
-            ? latest['qr_json'].toString()
-            : (t.qrJson ?? t.id);
-        final tankCode =
-            (latest['tank_code']?.toString().isNotEmpty ?? false)
-                ? latest['tank_code'].toString()
-                : t.tankCode;
-        final tankName =
-            (latest['tank_name']?.toString().isNotEmpty ?? false)
-                ? latest['tank_name'].toString()
-                : t.tankName;
+        final qrData = t.qrJson ?? t.id;
+        final tankCode = t.tankCode;
+        final tankName = t.tankName;
 
         final imageBytes = await _shotCtrl.captureFromWidget(
           Material(
@@ -167,12 +156,10 @@ class TankAdminCardState extends State<TankAdminCard> {
         );
         debugPrint('[Download] Captured ${imageBytes.length} bytes');
 
-        // Upload to Cloudinary and persist URL
-        final qrUrl =
-            await uploadBytesToCloudinary(imageBytes, folder: folderMain);
-        debugPrint('[Download] Updating qr_image_url in Firebase for ${t.id}');
-        await DatabaseModeService.ref('tanks/${t.id}')
-            .update({'qr_image_url': qrUrl});
+        try {
+          final qrUrl = await ApiClient.uploadBytes(imageBytes, filename: 'qr_${t.tankCode}.png');
+          debugPrint('[Download] Updated qr_image_url for ${t.id}: $qrUrl');
+        } catch (_) {}
 
         // Save locally and share
         final dir = await getApplicationDocumentsDirectory();

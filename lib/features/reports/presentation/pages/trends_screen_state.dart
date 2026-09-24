@@ -55,6 +55,38 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
   final _chartKey = GlobalKey();
   final _repo = ReadingRepository();
+  StreamSubscription? _tankSub;
+  StreamSubscription? _readingSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _tankSub = TankRepository().watchTanks().listen((_) {
+      if (mounted) {
+        _cache.clear();
+        setState(() {});
+      }
+    });
+    _readingSub = ReadingRepository().watchAllReadings().listen((_) {
+      if (mounted) {
+        _cache.clear();
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(TrendsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _cache.clear();
+  }
+
+  @override
+  void dispose() {
+    _tankSub?.cancel();
+    _readingSub?.cancel();
+    super.dispose();
+  }
 
   DateTimeRange _abnormalityWindow() {
     final now = DateTime.now();
@@ -138,17 +170,21 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     ReadingModel? reading;
     if (readingId.isNotEmpty) {
-      reading = allReadings.firstWhere((r) => r.id == readingId, orElse: () => null as dynamic);
+      try {
+        reading = allReadings.firstWhere((r) => r.id == readingId);
+      } catch (_) {}
     }
     if (reading == null) {
       final alertTimeStr = _alertTime(m);
       final alertTime = DateTime.tryParse(alertTimeStr);
       if (alertTime != null) {
-        reading = allReadings.firstWhere((r) {
-          final rt = DateTime.tryParse(r.capturedAt);
-          if (rt == null) return false;
-          return rt.difference(alertTime).abs().inMinutes < 5;
-        }, orElse: () => null as dynamic);
+        try {
+          reading = allReadings.firstWhere((r) {
+            final rt = DateTime.tryParse(r.capturedAt);
+            if (rt == null) return false;
+            return rt.difference(alertTime).abs().inMinutes < 5;
+          });
+        } catch (_) {}
       }
     }
 
@@ -214,8 +250,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       }
 
       final window = _abnormalityWindow();
-      final alertsSnap = await DatabaseModeService.ref('alerts').get();
-      final completedSnap = await DatabaseModeService.ref('completed_tasks').get();
+      final allAlerts = await AlertRepository().getAll();
 
       final alerts = <Map<String, dynamic>>[];
       final completed = <Map<String, dynamic>>[];
@@ -223,31 +258,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
       final allReadings = await _repo.getAllReadings();
 
-      if (alertsSnap.exists && alertsSnap.value is Map) {
-        final raw = Map<dynamic, dynamic>.from(alertsSnap.value as Map);
-        for (final v in raw.values) {
-          final m = Map<dynamic, dynamic>.from(v as Map);
-          if (m['tank_id']?.toString() != _selectedTankId) continue;
-          if (!_inRange(_alertTime(m), window)) continue;
-          imageUrls.addAll(_getAlertImagesForMap(m, allReadings));
-          alerts.add(m.map((k, val) => MapEntry(k.toString(), val)));
-        }
-      }
-
-      if (completedSnap.exists && completedSnap.value is Map) {
-        final raw = Map<dynamic, dynamic>.from(completedSnap.value as Map);
-        for (final v in raw.values) {
-          final m = Map<dynamic, dynamic>.from(v as Map);
-          final alertMap = m['alert'] is Map
-              ? Map<dynamic, dynamic>.from(m['alert'] as Map)
-              : <dynamic, dynamic>{};
-          if (alertMap['tank_id']?.toString() != _selectedTankId) continue;
-          if (!_inRange(m['completed_at']?.toString(), window)) continue;
-          imageUrls.addAll(_getAlertImagesForMap(alertMap, allReadings));
-          completed.add({
-            ...m.map((k, val) => MapEntry(k.toString(), val)),
-            'alert': alertMap.map((k, val) => MapEntry(k.toString(), val)),
-          });
+      for (final alert in allAlerts) {
+        if (alert.tankId != _selectedTankId) continue;
+        final m = alert.toMap();
+        if (!_inRange(_alertTime(m), window)) continue;
+        imageUrls.addAll(_getAlertImagesForMap(m, allReadings));
+        if (alert.resolved || alert.status.toLowerCase() == 'completed') {
+          completed.add(m);
+        } else {
+          alerts.add(m);
         }
       }
 
@@ -378,13 +397,58 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
   // ── Derived helpers ────────────────────────────────────────────────────────
 
-  bool get _isAllTanks => _selectedTankId == _kAllTanksId;
+  String? get _effectiveSelectedTankId {
+    if (_selectedTankId == null) return null;
+    if (_selectedTankId == _kAllTanksId) return _kAllTanksId;
+    if (widget.tanks.any((t) => t.id == _selectedTankId)) return _selectedTankId;
+    return null;
+  }
 
-  TankModel? get _selectedTank => _selectedTankId == null || _isAllTanks
-      ? null
-      : widget.tanks
-          .cast<TankModel?>()
-          .firstWhere((t) => t!.id == _selectedTankId, orElse: () => null);
+  Map<String, dynamic>? get _effectiveSelectedParam {
+    if (_selectedParam == null) return null;
+    final params = _graphableParams;
+    final paramId = _selectedParam!['id']?.toString();
+    final paramLabel = _selectedParam!['label']?.toString();
+    try {
+      return params.firstWhere((p) =>
+          (paramId != null && paramId.isNotEmpty && p['id']?.toString() == paramId) ||
+          (paramLabel != null && paramLabel.isNotEmpty && p['label']?.toString() == paramLabel));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  dynamic _extractRawValue(Map<String, dynamic> inspectionValues, Map<String, dynamic>? param) {
+    if (param == null) return null;
+    final label = param['label']?.toString() ?? '';
+    final id = param['id']?.toString() ?? '';
+    if (label.isNotEmpty && inspectionValues.containsKey(label)) {
+      return inspectionValues[label];
+    }
+    if (id.isNotEmpty && inspectionValues.containsKey(id)) {
+      return inspectionValues[id];
+    }
+    for (final entry in inspectionValues.entries) {
+      final k = entry.key.toString().toLowerCase();
+      if ((label.isNotEmpty && k == label.toLowerCase()) ||
+          (id.isNotEmpty && k == id.toLowerCase())) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  bool get _isAllTanks => _effectiveSelectedTankId == _kAllTanksId;
+
+  TankModel? get _selectedTank {
+    final tid = _effectiveSelectedTankId;
+    if (tid == null || _isAllTanks) return null;
+    try {
+      return widget.tanks.firstWhere((t) => t.id == tid);
+    } catch (_) {
+      return null;
+    }
+  }
 
   List<Map<String, dynamic>> get _graphableParams {
     final t = _selectedTank;
@@ -1118,7 +1182,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
         child: _DropContainer(
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
-              value: _selectedTankId,
+              value: _effectiveSelectedTankId,
               isExpanded: true,
               dropdownColor: _kCard,
               iconEnabledColor: _kSub,
@@ -1220,7 +1284,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     return _DropContainer(
       child: DropdownButtonHideUnderline(
         child: DropdownButton<Map<String, dynamic>>(
-          value: _selectedParam,
+          value: _effectiveSelectedParam,
           isExpanded: true,
           dropdownColor: _kCard,
           iconEnabledColor: params.isEmpty ? _kSubL : _kSub,
@@ -1637,12 +1701,151 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     switch (type) {
       case 'dropdown':
+        return _dropdownMultiLineChart(label, data);
+      case 'text':
+      case 'multiline':
         return _barChart(label, data);
       case 'dual_text':
         return _dualLineChart(label, data);
       default:
         return _singleLineChart(label, data);
     }
+  }
+
+  Widget _dropdownMultiLineChart(String label, List<ReadingModel> data) {
+    final rawOptions = _selectedParam?['options'];
+    final optionList = <String>[];
+    if (rawOptions is List) {
+      for (final item in rawOptions) {
+        if (item is String && item.isNotEmpty) {
+          optionList.add(item);
+        } else if (item is Map && item['value'] != null) {
+          optionList.add(item['value'].toString());
+        }
+      }
+    }
+    for (final r in data) {
+      final v = r.inspectionValues[label]?.toString() ?? '';
+      if (v.isNotEmpty && !optionList.contains(v)) {
+        optionList.add(v);
+      }
+    }
+
+    if (optionList.isEmpty) {
+      return _noData('No dropdown selections for "$label"');
+    }
+
+    final lines = <LineChartBarData>[];
+    final xLabels = <int, String>{};
+    for (int i = 0; i < data.length; i++) {
+      xLabels[i + 1] = _fmt(data[i].capturedAt);
+    }
+
+    final cumulativeCounts = <String, int>{for (var opt in optionList) opt: 0};
+    final optionSpots = <String, List<FlSpot>>{for (var opt in optionList) opt: []};
+
+    for (int i = 0; i < data.length; i++) {
+      final val = data[i].inspectionValues[label]?.toString() ?? '';
+      final x = (i + 1).toDouble();
+      for (final opt in optionList) {
+        if (val == opt) {
+          cumulativeCounts[opt] = (cumulativeCounts[opt] ?? 0) + 1;
+        }
+        final currentY = (cumulativeCounts[opt] ?? 0).toDouble();
+        optionSpots[opt]!.add(FlSpot(x, currentY));
+      }
+    }
+
+    int colorIdx = 0;
+    double maxY = 1;
+    for (final opt in optionList) {
+      final spots = optionSpots[opt] ?? [];
+      if (spots.isEmpty) continue;
+      final totalForOpt = cumulativeCounts[opt] ?? 0;
+      if (totalForOpt > maxY) maxY = totalForOpt.toDouble();
+
+      final color = _kMultiPalette[colorIdx % _kMultiPalette.length];
+      lines.add(LineChartBarData(
+        spots: spots,
+        color: color,
+        barWidth: 2.5,
+        isCurved: false,
+        dotData: FlDotData(
+          show: spots.length <= 30,
+          getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
+            radius: 4,
+            color: color,
+            strokeWidth: 1.5,
+            strokeColor: color.withOpacity(0.5),
+          ),
+        ),
+        belowBarData: BarAreaData(show: false),
+      ));
+      colorIdx++;
+    }
+
+    if (lines.isEmpty) return _noData('No dropdown values for "$label"');
+
+    final totalCount = data.length;
+
+    return LineChart(LineChartData(
+      borderData: _borderData,
+      gridData: _gridData,
+      minX: 1,
+      maxX: totalCount.toDouble(),
+      minY: 0,
+      maxY: maxY + 1,
+      titlesData: FlTitlesData(
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 36,
+            getTitlesWidget: (v, _) {
+              if (v != v.truncateToDouble()) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Text(
+                  v.toInt().toString(),
+                  style: GoogleFonts.spaceGrotesk(fontSize: 9, color: _kSubL),
+                ),
+              );
+            },
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: _bottomTitlesSparse(
+            totalCount,
+            (idx) => xLabels[idx] ?? '',
+          ),
+        ),
+      ),
+      lineBarsData: lines,
+      lineTouchData: LineTouchData(
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (_) => _kCard,
+          tooltipBorderRadius: BorderRadius.circular(8),
+          tooltipBorder: const BorderSide(color: _kBorder),
+          getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
+            final optIdx = s.barIndex;
+            final optName = (optIdx >= 0 && optIdx < optionList.length)
+                ? optionList[optIdx]
+                : '';
+            final color = _kMultiPalette[optIdx % _kMultiPalette.length];
+            final dateLabel = xLabels[s.x.toInt()] ?? '';
+            return LineTooltipItem(
+              '$optName: ${s.y.toInt()} count\n$dateLabel',
+              GoogleFonts.spaceGrotesk(
+                color: color,
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    ));
   }
 
   // ── All-tanks multi-line chart ─────────────────────────────────────────────
@@ -1911,7 +2114,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
     for (int i = 0; i < data.length; i++) {
       final xIdx = i + 1;
-      final raw = data[i].inspectionValues[label];
+      final raw = _extractRawValue(data[i].inspectionValues, _selectedParam);
       final v = _toDouble(raw);
       if (v != null) {
         spots.add(FlSpot(xIdx.toDouble(), v));

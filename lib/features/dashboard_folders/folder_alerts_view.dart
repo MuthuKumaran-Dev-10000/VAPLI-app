@@ -35,6 +35,7 @@ class FolderAlertsView extends StatefulWidget {
 class _FolderAlertsViewState extends State<FolderAlertsView> {
   // Stateful navigation variables for page-in/page-out system
   String? _selectedParam;
+  String? _selectedTitle;
   String? _selectedAssetId;
 
   // Palette constants
@@ -49,12 +50,14 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
 
   int get _depth {
     if (_selectedParam == null) return 0;
-    if (_selectedAssetId == null) return 1;
-    return 2;
+    if (_selectedTitle == null) return 1;
+    if (_selectedAssetId == null) return 2;
+    return 3;
   }
 
-  void _navigateTo({String? param, String? assetId}) {
+  void _navigateTo({String? param, String? title, String? assetId}) {
     _selectedParam = param;
+    _selectedTitle = title;
     _selectedAssetId = assetId;
     widget.onNavigationDepthChanged?.call(_depth);
     setState(() {});
@@ -64,20 +67,28 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
   void didUpdateWidget(FolderAlertsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     final oldDepth = _depth;
-    // If the folder list is empty or doesn't contain current selected param, reset navigation
     if (widget.folders.isEmpty) {
       _selectedParam = null;
+      _selectedTitle = null;
       _selectedAssetId = null;
     } else if (_selectedParam != null) {
       final paramExists = widget.folders.any((f) => f.paramLabel == _selectedParam);
       if (!paramExists) {
         _selectedParam = null;
+        _selectedTitle = null;
         _selectedAssetId = null;
-      } else if (_selectedAssetId != null) {
+      } else if (_selectedTitle != null) {
         final currentParam = widget.folders.firstWhere((f) => f.paramLabel == _selectedParam);
-        final assetExists = currentParam.assets.any((a) => a.tankId == _selectedAssetId);
-        if (!assetExists) {
+        final titleExists = currentParam.titleGroups.any((t) => t.alertTitle == _selectedTitle);
+        if (!titleExists) {
+          _selectedTitle = null;
           _selectedAssetId = null;
+        } else if (_selectedAssetId != null) {
+          final currentTitle = currentParam.titleGroups.firstWhere((t) => t.alertTitle == _selectedTitle);
+          final assetExists = currentTitle.assets.any((a) => a.tankId == _selectedAssetId);
+          if (!assetExists) {
+            _selectedAssetId = null;
+          }
         }
       }
     }
@@ -243,22 +254,21 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
     final currentParamGroup =
         widget.folders.firstWhere((f) => f.paramLabel == _selectedParam);
 
-    if (_selectedAssetId == null) {
+    if (_selectedTitle == null) {
       // ───────────────────────────────────────────────────────────────────────
-      // LEVEL 2: ASSET FOLDERS LIST INSIDE PARAMETER
+      // LEVEL 2: ALERT TITLE FOLDERS LIST INSIDE PARAMETER
       // ───────────────────────────────────────────────────────────────────────
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Navigation Back Header
           _buildBackHeader(
             title: currentParamGroup.paramLabel,
             onBack: () => _navigateTo(),
-
           ),
           const SizedBox(height: 10),
 
-          ...currentParamGroup.assets.map((assetFolder) {
+          ...currentParamGroup.titleGroups.map((titleFolder) {
+            final allAlertsInTitle = titleFolder.assets.expand((a) => a.alerts).toList();
             return Container(
               margin: const EdgeInsets.only(bottom: 10),
               decoration: BoxDecoration(
@@ -269,8 +279,135 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
               child: Column(
                 children: [
                   InkWell(
-                    onTap: () => _navigateTo(param: _selectedParam, assetId: assetFolder.tankId),
+                    onTap: () => _navigateTo(param: _selectedParam, title: titleFolder.alertTitle),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      child: Row(
+                        children: [
+                          FannedCardLayout(
+                            alerts: allAlertsInTitle,
+                            size: 40.0,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  titleFolder.alertTitle,
+                                  style: GoogleFonts.dmSans(
+                                    color: _kText,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  widget.isCompleted
+                                      ? '${titleFolder.totalAlerts} Completed'
+                                      : '${titleFolder.totalAlerts} Alerts (${titleFolder.assets.length} Templates)',
+                                  style: GoogleFonts.dmSans(
+                                    color: widget.isCompleted ? _kSuccess : _kDanger,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: _kSub,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (!widget.isCompleted && widget.onBulkCompleteRequested != null)
+                    Builder(
+                      builder: (bCtx) => InkWell(
+                        onTap: () => widget
+                            .onBulkCompleteRequested!(allAlertsInTitle, bCtx),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(12),
+                          bottomRight: Radius.circular(12),
+                        ),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          decoration: BoxDecoration(
+                            color: _kSuccess.withOpacity(0.07),
+                            borderRadius: const BorderRadius.only(
+                              bottomLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(12),
+                            ),
+                            border: Border(
+                              top: BorderSide(
+                                  color: _kSuccess.withOpacity(0.2)),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.task_alt_rounded,
+                                  color: _kSuccess, size: 12),
+                              const SizedBox(width: 5),
+                              Text(
+                                'COMPLETE TASK',
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: _kSuccess,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.9,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+        ],
+      );
+    }
 
+    final currentTitleGroup =
+        currentParamGroup.titleGroups.firstWhere((t) => t.alertTitle == _selectedTitle);
+
+    if (_selectedAssetId == null) {
+      // ───────────────────────────────────────────────────────────────────────
+      // LEVEL 3: TEMPLATES / ASSET FOLDERS LIST INSIDE ALERT TITLE
+      // ───────────────────────────────────────────────────────────────────────
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildBackHeader(
+            title: currentTitleGroup.alertTitle,
+            subtitle: currentParamGroup.paramLabel,
+            onBack: () => _navigateTo(param: _selectedParam),
+          ),
+          const SizedBox(height: 10),
+
+          ...currentTitleGroup.assets.map((assetFolder) {
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141618),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _themeColor.withOpacity(0.25)),
+              ),
+              child: Column(
+                children: [
+                  InkWell(
+                    onTap: () => _navigateTo(
+                        param: _selectedParam,
+                        title: _selectedTitle,
+                        assetId: assetFolder.tankId),
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -316,7 +453,6 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
                       ),
                     ),
                   ),
-                  // ── Asset-level Bulk Complete button ────────────────────
                   if (!widget.isCompleted && widget.onBulkCompleteRequested != null)
                     Builder(
                       builder: (bCtx) => InkWell(
@@ -370,10 +506,10 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
 
     // Get currently navigated asset folder
     final currentAssetFolder =
-        currentParamGroup.assets.firstWhere((a) => a.tankId == _selectedAssetId);
+        currentTitleGroup.assets.firstWhere((a) => a.tankId == _selectedAssetId);
 
     // ───────────────────────────────────────────────────────────────────────
-    // LEVEL 3: LEAF NODE ALERTS INSIDE SELECTED ASSET
+    // LEAF NODE: ALERTS CARDS INSIDE SELECTED TEMPLATE / ASSET
     // ───────────────────────────────────────────────────────────────────────
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -381,8 +517,8 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
         // Navigation Back Header
         _buildBackHeader(
           title: currentAssetFolder.tankName,
-          subtitle: currentParamGroup.paramLabel,
-          onBack: () => _navigateTo(param: _selectedParam),
+          subtitle: '${currentParamGroup.paramLabel} > ${currentTitleGroup.alertTitle}',
+          onBack: () => _navigateTo(param: _selectedParam, title: _selectedTitle),
         ),
         const SizedBox(height: 10),
 

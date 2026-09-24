@@ -27,7 +27,6 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:firebase_database/firebase_database.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -38,6 +37,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lubrication_indicator/core/services/audit_log_service.dart';
 import 'package:lubrication_indicator/core/utils/session_manager.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
+import 'package:lubrication_indicator/core/api/api_client.dart';
+import 'package:lubrication_indicator/core/services/app_settings_service.dart';
 import 'package:lubrication_indicator/core/services/client_context_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart' as pdf;

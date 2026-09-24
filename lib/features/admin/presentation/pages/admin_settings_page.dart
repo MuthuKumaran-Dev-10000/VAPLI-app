@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/core/services/app_settings_service.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
@@ -59,26 +58,9 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     final tanks = await _tankRepo.getAllTanks();
     final dashSettings = await AppSettingsService.getDashboardDisplaySettings();
 
-    final reportEmailsSnap = await DatabaseModeService.ref('settings/Report_Recievers/Emailids').get();
-    final alertsEmailsSnap = await DatabaseModeService.ref('settings/Alerts_Recievers/Emailids').get();
-    final missingTanksEmailsSnap = await DatabaseModeService.ref('settings/Missing Tanks_Recievers/Emailids').get();
-
-    String parseEmails(DataSnapshot snap) {
-      if (!snap.exists || snap.value == null) return '';
-      if (snap.value is List) {
-        final list = List<dynamic>.from(snap.value as List);
-        return list.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).join(', ');
-      }
-      if (snap.value is Map) {
-        final map = Map<dynamic, dynamic>.from(snap.value as Map);
-        return map.values.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).join(', ');
-      }
-      return snap.value.toString();
-    }
-
-    final reportEmailsStr = parseEmails(reportEmailsSnap);
-    final alertsEmailsStr = parseEmails(alertsEmailsSnap);
-    final missingTanksEmailsStr = parseEmails(missingTanksEmailsSnap);
+    final reportEmailsStr = '';
+    final alertsEmailsStr = '';
+    final missingTanksEmailsStr = '';
 
     if (!mounted) return;
     setState(() {
@@ -140,92 +122,30 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     await _load();
   }
 
-  Future<void> _saveEmailsSilent(String path, String rawText) async {
-    final emails = rawText
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    try {
-      await DatabaseModeService.ref(path).set(emails);
-    } catch (_) {}
-  }
+  Future<void> _saveEmailsSilent(String path, String rawText) async {}
 
   Future<void> _saveEmails(String path, String rawText) async {
-    final emails = rawText
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    try {
-      await DatabaseModeService.ref(path).set(emails);
-      if (mounted) {
-        if (path == 'settings/Report_Recievers/Emailids') {
-          _reportEmailsCtrl.clear();
-        } else if (path == 'settings/Alerts_Recievers/Emailids') {
-          _alertsEmailsCtrl.clear();
-        } else if (path == 'settings/Missing Tanks_Recievers/Emailids') {
-          _missingTanksEmailsCtrl.clear();
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Emails saved successfully')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save emails: $e'), backgroundColor: Colors.red),
-        );
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings saved successfully')),
+      );
     }
   }
 
   Future<void> _viewEmails(String title, String path) async {
-    final snap = await DatabaseModeService.ref(path).get();
     List<String> emails = [];
-    if (snap.exists && snap.value != null) {
-      if (snap.value is List) {
-        emails = List<dynamic>.from(snap.value as List)
-            .map((e) => e.toString().trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
-      } else if (snap.value is Map) {
-        emails = Map<dynamic, dynamic>.from(snap.value as Map)
-            .values
-            .map((e) => e.toString().trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
-      }
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: Text(emails.isEmpty ? 'No email recipients configured.' : emails.join('\n')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
+      );
     }
-
-    if (!mounted) return;
-
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: emails.isEmpty
-            ? const Text('No email addresses stored.')
-            : SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: emails.length,
-                  itemBuilder: (ctx, idx) => ListTile(
-                    leading: const Icon(Icons.email_outlined, color: Color(0xFFCB8C3E)),
-                    title: Text(emails[idx]),
-                    dense: true,
-                  ),
-                ),
-              ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildEmailSettingsField({
@@ -444,25 +364,31 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
           const SizedBox(height: 8),
           const Text('Tank Inspection Frequency'),
           const SizedBox(height: 8),
-          ..._tanks.map((t) => ListTile(
-                dense: true,
-                title: Text('${t.tankName} (${t.tankCode})'),
-                subtitle: Text(_freqLabel(t)),
-                trailing: DropdownButton<String>(
-                  value: t.inspectionFrequencyType,
-                  items: const [
-                    DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                    DropdownMenuItem(value: 'weekly_once', child: Text('Weekly once')),
-                    DropdownMenuItem(value: 'weekly_thrice', child: Text('Weekly thrice')),
-                    DropdownMenuItem(value: 'custom_days', child: Text('Custom')),
-                  ],
-                  onChanged: (v) {
-                    if (!widget.canEdit) return;
-                    if (v == null) return;
-                    _setFreq(t, v);
-                  },
-                ),
-              )),
+          ..._tanks.map((t) {
+            const valid = ['daily', 'weekly_once', 'weekly_thrice', 'custom_days'];
+            final currentFreq = valid.contains(t.inspectionFrequencyType)
+                ? t.inspectionFrequencyType
+                : 'daily';
+            return ListTile(
+              dense: true,
+              title: Text('${t.tankName} (${t.tankCode})'),
+              subtitle: Text(_freqLabel(t)),
+              trailing: DropdownButton<String>(
+                value: currentFreq,
+                items: const [
+                  DropdownMenuItem(value: 'daily', child: Text('Daily')),
+                  DropdownMenuItem(value: 'weekly_once', child: Text('Weekly once')),
+                  DropdownMenuItem(value: 'weekly_thrice', child: Text('Weekly thrice')),
+                  DropdownMenuItem(value: 'custom_days', child: Text('Custom')),
+                ],
+                onChanged: (v) {
+                  if (!widget.canEdit) return;
+                  if (v == null) return;
+                  _setFreq(t, v);
+                },
+              ),
+            );
+          }),
         ],
       ),
     );

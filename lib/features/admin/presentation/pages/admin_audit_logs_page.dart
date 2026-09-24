@@ -1,9 +1,8 @@
 import 'dart:convert';
-
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'package:lubrication_indicator/core/api/api_client.dart';
 import 'package:lubrication_indicator/core/models/client_model.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/features/auth/data/models/user_model.dart';
@@ -34,14 +33,21 @@ class _AdminAuditLogsPageState extends State<AdminAuditLogsPage> {
   String _tankFilter = 'all';
   String _actorFilter = 'all';
 
-  DatabaseReference get _ref {
-    final rootPrefix = DatabaseModeService.isDevelopment.value ? 'testDB/' : '';
-    final client = _selectedClientModel();
-    if (client != null && client.dbKey.trim().isNotEmpty) {
-      return FirebaseDatabase.instance
-          .ref('${rootPrefix}${client.dbKey.trim()}/admin_audit_logs');
-    }
-    return FirebaseDatabase.instance.ref('${rootPrefix}admin_audit_logs_master');
+  Future<List<Map<String, dynamic>>> _fetchLogs() async {
+    try {
+      final client = _selectedClientModel();
+      final path = (client != null && client.id.isNotEmpty)
+          ? '/clients/${client.id}/audit-logs'
+          : '/admin/audit-logs';
+      final res = await ApiClient.get(path);
+      final data = res['data'];
+      if (data is List) {
+        return List<Map<String, dynamic>>.from(
+          data.map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+      }
+    } catch (_) {}
+    return [];
   }
 
   @override
@@ -324,10 +330,10 @@ class _AdminAuditLogsPageState extends State<AdminAuditLogsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DatabaseEvent>(
-      stream: _ref.onValue,
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchLogs(),
       builder: (context, snapshot) {
-        final allLogs = _logsFrom(snapshot.data?.snapshot.value);
+        final allLogs = snapshot.data ?? [];
         final visibleLogs = allLogs.where(_matches).toList();
         final isCompact = MediaQuery.sizeOf(context).width < 700;
 

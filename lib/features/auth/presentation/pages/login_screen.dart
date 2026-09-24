@@ -160,12 +160,17 @@ class _LoginScreenState extends State<LoginScreen>
       }
 
       if (_selectedClient == null) {
-        throw Exception('Select a client first');
+        if (_usernameCtrl.text.trim().toLowerCase() == 'admin') {
+          await DatabaseModeService.setClientScope(null);
+          await ClientContextService.clearActiveClient();
+        } else {
+          throw Exception('Select a client first');
+        }
+      } else {
+        await _clientRepo.ensureClientBootstrap(_selectedClient!);
+        await ClientContextService.setActiveClient(_selectedClient!);
+        await DatabaseModeService.setClientScope(_selectedClient!.dbKey);
       }
-
-      await _clientRepo.ensureClientBootstrap(_selectedClient!);
-      await ClientContextService.setActiveClient(_selectedClient!);
-      await DatabaseModeService.setClientScope(_selectedClient!.dbKey);
 
       await _authController.loginUser(
         username: _usernameCtrl.text,
@@ -244,8 +249,8 @@ class _LoginScreenState extends State<LoginScreen>
                               const SizedBox(height: 8),
                               ...matched.map((c) => ListTile(
                                     dense: true,
-                                    title: Text(c.name),
-                                    subtitle: Text(c.description),
+                                    title: Text(c.name, style: const TextStyle(color: AppColors.textPrimary)),
+                                    subtitle: c.description.isNotEmpty ? Text(c.description, style: const TextStyle(color: AppColors.textSecondary)) : null,
                                     trailing: _selectedClient?.id == c.id
                                         ? const Icon(Icons.check_circle,
                                             color: Colors.green)
@@ -262,6 +267,7 @@ class _LoginScreenState extends State<LoginScreen>
                             ],
                             const SizedBox(height: 12),
                           ],
+                          const SizedBox(height: 16),
                           TextFormField(
                             controller: _usernameCtrl,
                             style:

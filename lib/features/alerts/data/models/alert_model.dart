@@ -136,6 +136,17 @@ class AlertModel {
   };
 
   factory AlertModel.fromMap(String id, Map<dynamic, dynamic> m) {
+    bool parseBool(dynamic val, {bool defaultValue = false}) {
+      if (val == null) return defaultValue;
+      if (val is bool) return val;
+      if (val is num) return val != 0;
+      if (val is String) {
+        final s = val.toLowerCase().trim();
+        return s == 'true' || s == '1';
+      }
+      return defaultValue;
+    }
+
     Map<String, dynamic> inspVals = {};
     if (m['last_inspection_values'] is Map) {
       inspVals = Map<String, dynamic>.from(m['last_inspection_values'] as Map);
@@ -159,12 +170,12 @@ class AlertModel {
       violatedValue:             m['violated_value']?.toString()      ?? '',
       alertTitle:                m['alert_title']?.toString()         ?? 'Alert',
       message:                   m['message']?.toString()             ?? '',
-      showDashboardAlert:        m['show_dashboard_alert'] == true,
-      playSound:                 m['play_sound'] == true,
-      captureImageOnViolation:   m['capture_image_on_violation'] == true,
-      blockSubmission:           m['block_submission'] == true,
+      showDashboardAlert:        parseBool(m['show_dashboard_alert']),
+      playSound:                 parseBool(m['play_sound']),
+      captureImageOnViolation:   parseBool(m['capture_image_on_violation']),
+      blockSubmission:           parseBool(m['block_submission']),
       lastInspectionValues:      inspVals,
-      resolved:                  m['resolved'] == true,
+      resolved:                  parseBool(m['resolved']),
       resolvedAt:                m['resolved_at']?.toString(),
       resolvedBy:                m['resolved_by']?.toString(),
       status:                    m['status']?.toString()              ?? 'active',

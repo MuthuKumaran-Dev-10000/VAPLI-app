@@ -3,11 +3,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
+import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 import 'dashboard_alerts_display_model.dart';
 import 'dashboard_alerts_sync_service.dart';
 import 'folder_alerts_view.dart';
+
+const _kSuccess = Color(0xFF22C55E);
+const _kCard = Color(0xFF1E293B);
+const _kText = Color(0xFFF8FAFC);
+const _kSub = Color(0xFF94A3B8);
 
 class AlertsScreen extends StatefulWidget {
   final Function(DashboardAlertDisplayItem)? onCompleteTaskRequested;
@@ -31,9 +36,6 @@ class AlertsScreen extends StatefulWidget {
 }
 
 class _AlertsScreenState extends State<AlertsScreen> {
-  // Database references
-  static DatabaseReference _ref(String path) => DatabaseModeService.ref(path);
-
   // Subscriptions
   StreamSubscription? _alertsSub;
   StreamSubscription? _completedSub;
@@ -168,124 +170,78 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   void _subscribeSettings() {
-    _settingsSub = _ref('settings/dashboard_visibility').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) return;
-      try {
-        final data = Map<dynamic, dynamic>.from(snap.value as Map);
-        if (mounted) {
-          setState(() {
-            _showCompletedAlerts = data['show_completed_alerts'] ?? true;
-            _showActiveAlerts = data['show_active_alerts'] ?? true;
-          });
-        }
-      } catch (_) {}
-    });
+    if (mounted) {
+      setState(() {
+        _showCompletedAlerts = true;
+        _showActiveAlerts = true;
+      });
+    }
   }
 
   void _subscribeActiveAlerts() {
-    _alertsSub = _ref('alerts').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) {
-        if (mounted) {
-          setState(() {
-            _allActiveAlerts = [];
-            _activeFolders = [];
-            _syncingActive = false;
-          });
-        }
-        return;
-      }
-
-      final raw = Map<dynamic, dynamic>.from(snap.value as Map);
-      final items = <DashboardAlertDisplayItem>[];
-      for (final v in raw.values) {
-        final m = Map<dynamic, dynamic>.from(v as Map);
-        final status = m['status']?.toString() ?? 'active';
-        final acknowledged = m['acknowledged'] == true;
-        if (status == 'COMPLETED' || acknowledged) continue;
-
-        items.add(DashboardAlertDisplayItem.fromMap(m));
-      }
-
-      items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      if (mounted) {
-        setState(() {
-          _allActiveAlerts = items;
-        });
-        _syncActiveFolders();
-      }
+    _alertsSub?.cancel();
+    _fetchActiveAlerts();
+    _alertsSub = Stream.periodic(const Duration(seconds: 10)).listen((_) {
+      _fetchActiveAlerts();
     });
   }
 
-  void _subscribeCompletedAlerts() {
-    _completedSub = _ref('completed_tasks').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) {
-        if (mounted) {
-          setState(() {
-            _allCompletedAlerts = [];
-            _completedFolders = [];
-            _syncingCompleted = false;
-          });
-        }
-        return;
-      }
-
-      final raw = Map<dynamic, dynamic>.from(snap.value as Map);
+  Future<void> _fetchActiveAlerts() async {
+    try {
+      final allAlerts = await AlertRepository().getAll();
+      if (!mounted) return;
       final items = <DashboardAlertDisplayItem>[];
-      for (final v in raw.values) {
-        final m = Map<dynamic, dynamic>.from(v as Map);
-        final alertMap = m['alert'];
-        if (alertMap == null) continue;
-        final am = Map<dynamic, dynamic>.from(alertMap as Map);
-        final completedAt = m['completed_at']?.toString() ?? am['timestamp']?.toString() ?? '';
-        
-        final rawUrls = m['completed_photo_urls'];
-        final List<String> parsedUrls = (rawUrls is List)
-            ? rawUrls.map((e) => e.toString()).toList()
-            : (m['completed_photo_url']?.toString().isNotEmpty == true
-                ? [m['completed_photo_url'].toString()]
-                : []);
-
-        items.add(DashboardAlertDisplayItem(
-          id: am['id']?.toString() ?? '',
-          alertTitle: am['alert_title']?.toString() ?? '',
-          message: am['message']?.toString() ?? '',
-          op: am['op']?.toString() ?? '',
-          severity: am['severity']?.toString() ?? 'warning',
-          tankId: am['tank_id']?.toString() ?? '',
-          tankName: am['tank_name']?.toString() ?? '',
-          tankCode: am['tank_code']?.toString() ?? '',
-          paramId: am['param_id']?.toString() ?? '',
-          paramLabel: am['param_label']?.toString() ?? '',
-          paramValue: am['param_value']?.toString() ?? '',
-          capturedBy: am['captured_by']?.toString() ?? '',
-          capturedByName: m['completed_by']?.toString() ?? am['captured_by_name']?.toString() ?? '',
-          imageUrl: am['image_url']?.toString() ?? '',
-          constraintId: am['constraint_id']?.toString() ?? '',
-          timestamp: completedAt,
-          acknowledged: true,
-          isLive: am['live'] == true,
-          status: 'COMPLETED',
-          readingId: am['reading_id']?.toString() ?? '',
-          ifThen: am['if_then']?.toString() ?? '',
-          completedDescription: m['completed_description']?.toString() ?? '',
-          completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
-          completedPhotoUrls: parsedUrls,
-        ));
+      for (final a in allAlerts) {
+        if (!a.resolved && a.status.toLowerCase() != 'completed') {
+          items.add(DashboardAlertDisplayItem.fromMap(a.toMap()));
+        }
       }
-
       items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
+      setState(() {
+        _allActiveAlerts = items;
+        _syncingActive = false;
+      });
+      _syncActiveFolders();
+    } catch (_) {
       if (mounted) {
         setState(() {
-          _allCompletedAlerts = items;
+          _syncingActive = false;
         });
-        _syncCompletedFolders();
       }
+    }
+  }
+
+  void _subscribeCompletedAlerts() {
+    _completedSub?.cancel();
+    _fetchCompletedAlerts();
+    _completedSub = Stream.periodic(const Duration(seconds: 10)).listen((_) {
+      _fetchCompletedAlerts();
     });
+  }
+
+  Future<void> _fetchCompletedAlerts() async {
+    try {
+      final allAlerts = await AlertRepository().getAll();
+      if (!mounted) return;
+      final items = <DashboardAlertDisplayItem>[];
+      for (final a in allAlerts) {
+        if (a.resolved || a.status.toLowerCase() == 'completed') {
+          items.add(DashboardAlertDisplayItem.fromMap(a.toMap()));
+        }
+      }
+      items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      setState(() {
+        _allCompletedAlerts = items;
+        _syncingCompleted = false;
+      });
+      _syncCompletedFolders();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _syncingCompleted = false;
+        });
+      }
+    }
   }
 
 

@@ -2,7 +2,6 @@ part of 'reading_entry_screen.dart';
 
 class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
   final _picker = ImagePicker();
-  DatabaseReference _ref(String path) => DatabaseModeService.ref(path);
 
   // ── Audio ──────────────────────────────────────────────────────────────
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -129,35 +128,15 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
 
     _manualCaptures.add(_ManualCaptureEntry());
 
-    // 🔖 Subscribe to active alerts for this tank in Firebase (Alert Lifecycle Bug Fix)
-    _activeAlertsSub = _ref('alerts')
-        .orderByChild('tank_id')
-        .equalTo(widget.tank.id)
-        .onValue
-        .listen((event) {
+    // 🔖 Subscribe to active alerts for this tank via API
+    _activeAlertsSub = AlertRepository().watchForTank(widget.tank.id).listen((alerts) {
       if (!mounted) return;
-      if (!event.snapshot.exists || event.snapshot.value == null) {
-        setState(() {
-          _activeAlerts = [];
-          _activeAlertImages = {};
-        });
-        return;
-      }
-      final raw = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
       final list = <AlertModel>[];
       final images = <String, String>{};
 
-      for (final e in raw.entries) {
-        final alertId = e.key.toString();
-        final alertMap = Map<dynamic, dynamic>.from(e.value as Map);
-        final alert = AlertModel.fromMap(alertId, alertMap);
-
+      for (final alert in alerts) {
         if (!alert.resolved && alert.status.toLowerCase() != 'completed') {
           list.add(alert);
-          final imgUrl = alertMap['image_url']?.toString() ?? '';
-          if (imgUrl.isNotEmpty) {
-            images[alertId] = imgUrl;
-          }
         }
       }
 
@@ -836,9 +815,10 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
       final label = p['label']?.toString() ?? pid;
       final path = _previousCapturePath(baseParamId: pid, baseParamLabel: label);
       try {
-        final snap = await _ref(path).get();
-        if (!snap.exists || snap.value == null) return 0.0;
-        final stored = snap.value;
+        final last = await ReadingRepository().getLastReading(widget.tank.id);
+        if (last == null) return 0.0;
+        final stored = last.inspectionValues[label];
+        if (stored == null) return 0.0;
         if (type == 'dual_text') {
           if (stored is Map) {
             final m = Map<dynamic, dynamic>.from(stored as Map);
@@ -887,14 +867,15 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
 
     final type = p['type'] as String? ?? 'text';
     final label = p['label']?.toString() ?? pid;
-    final path = _previousCapturePath(baseParamId: pid, baseParamLabel: label);
 
     try {
-      final snap = await _ref(path).get();
-      if (!snap.exists || snap.value == null) return false;
+      final last = await ReadingRepository().getLastReading(widget.tank.id);
+      if (last == null) return false;
+      final stored = last.inspectionValues[label];
+      if (stored == null) return false;
       if (type == 'dual_text') {
-        if (snap.value is! Map) return false;
-        final m = Map<dynamic, dynamic>.from(snap.value as Map);
+        if (stored is! Map) return false;
+        final m = Map<dynamic, dynamic>.from(stored as Map);
         final sideValue = side == 'right' ? m['right'] : m['left'];
         return sideValue != null && sideValue.toString().trim().isNotEmpty;
       }
@@ -1136,34 +1117,10 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     }
   }
 
-  // ── Cloudinary upload ──────────────────────────────────────────────────
+  // ── Server image upload ────────────────────────────────────────────────
 
-  String _sig(String ts) => crypto.sha1
-      .convert(
-        utf8.encode(
-          'folder=$_folder&timestamp=$ts${EnvConfig.cloudinaryApiSecret}',
-        ),
-      )
-      .toString();
-
-  Future<String> _uploadFile(File file) async {
-    final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
-    final req = http.MultipartRequest('POST',
-        Uri.parse(
-          'https://api.cloudinary.com/v1_1/${EnvConfig.cloudinaryCloudName}/image/upload',
-        ));
-    req.fields['api_key'] = EnvConfig.cloudinaryApiKey;
-    req.fields['timestamp'] = ts;
-    req.fields['signature'] = _sig(ts);
-    req.fields['folder'] = _folder;
-    req.files.add(await http.MultipartFile.fromPath('file', file.path,
-        contentType:
-            MediaType.parse(lookupMimeType(file.path) ?? 'image/jpeg')));
-    final res = await http.Response.fromStream(await req.send());
-    if (res.statusCode != 200) {
-      throw Exception('Photo upload failed (${res.statusCode})');
-    }
-    return (json.decode(res.body) as Map)['secure_url'] as String;
+  Future<String> _uploadFile(File file, {String category = 'general'}) async {
+    return ApiClient.uploadFile(file, category: category);
   }
 
   // ── Immediate param photo upload ───────────────────────────────────────
@@ -1186,7 +1143,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     });
 
     try {
-      final url = await _uploadFile(annotated);
+      final url = await _uploadFile(annotated, category: 'autocapture');
       if (mounted) {
         setState(() {
           _paramPhotoUrl[paramId] = url;
@@ -1224,7 +1181,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     });
 
     try {
-      final url = await _uploadFile(annotated);
+      final url = await _uploadFile(annotated, category: 'violation');
       if (mounted) {
         setState(() {
           _violationPhotoUrls[paramId]![constraintId] = url;
@@ -1261,7 +1218,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     });
 
     try {
-      final url = await _uploadFile(annotated);
+      final url = await _uploadFile(annotated, category: 'manual');
       if (mounted) {
         setState(() {
           _manualCaptures[index].uploadedUrl = url;
@@ -1343,17 +1300,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     };
 
     try {
-      if (v.showDashboardAlert) {
-        await _ref('alerts/$alertId').set(record);
-      }
-      if (v.storeHistory) {
-        await _ref('violations/$alertId').set(record);
-      }
-      await _ref('alerts_full/$alertId').set({
-        ...record,
-        'all_values_snapshot': _collectValues(),
-        'resolved': false,
-      });
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
+      await ApiClient.post('/clients/$clientId/alerts', record);
     } catch (e) {
       debugPrint('[LiveAlert] Write failed: $e');
     }
@@ -1369,9 +1318,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     _liveAlertIds[paramId]!.remove(constraintId);
 
     try {
-      await _ref('alerts/$alertId').remove();
-      await _ref('violations/$alertId').remove();
-      await _ref('alerts_full/$alertId').remove();
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
+      await ApiClient.delete('/clients/$clientId/alerts/$alertId');
     } catch (e) {
       debugPrint('[LiveAlert] Delete failed: $e');
     }
@@ -1562,8 +1511,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
         'all_values_snapshot': currentValues,
         if (ifThenStr.isNotEmpty) 'if_then': ifThenStr,
       };
-      await _ref('alerts/$alertId').update(update);
-      await _ref('alerts_full/$alertId').update(update);
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
+      await ApiClient.put('/clients/$clientId/alerts/$alertId', update);
     } catch (e) {
       debugPrint('[LiveAlert] Update failed: $e');
     }
@@ -1818,20 +1768,6 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
 
       await _auditReadingSave(reading, inspVals);
 
-      for (final p in _allActiveProps()) {
-        if (p['keep_previous_capture'] != true) continue;
-        final id = p['id'] as String;
-        final type = p['type'] as String? ?? 'text';
-        final label = p['label'] as String? ?? id;
-        final val = _currentValue(id, type, p);
-        try {
-          await _ref(_previousCapturePath(
-            baseParamId: id,
-            baseParamLabel: label,
-          )).set(val);
-        } catch (_) {}
-      }
-
       for (final entry in _liveAlertIds.entries) {
         final paramId = entry.key;
         for (final item in entry.value.entries) {
@@ -1839,17 +1775,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
           final alertId = item.value;
           try {
             final ifThenStr = _buildIfThenString(paramId, constraintId, inspVals);
-            await _ref('alerts/$alertId').update({
-              'live': false,
-              'reading_id': reading.id ?? '',
-              if (ifThenStr.isNotEmpty) 'if_then': ifThenStr,
-            });
-            await _ref('violations/$alertId').update({
-              'live': false,
-              'reading_id': reading.id ?? '',
-              if (ifThenStr.isNotEmpty) 'if_then': ifThenStr,
-            });
-            await _ref('alerts_full/$alertId').update({
+            final client = await ClientContextService.getActiveClient();
+            final clientId = client?.id ?? 'dummy_client_id';
+            await ApiClient.put('/clients/$clientId/alerts/$alertId', {
               'live': false,
               'reading_id': reading.id ?? '',
               if (ifThenStr.isNotEmpty) 'if_then': ifThenStr,

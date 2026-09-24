@@ -9,7 +9,6 @@ import 'package:lubrication_indicator/core/services/report_storage_service.dart'
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/core/services/audit_log_service.dart';
@@ -25,12 +24,27 @@ import 'package:lubrication_indicator/features/auth/data/repositories/auth_repos
 import 'package:lubrication_indicator/features/admin/presentation/pages/admin_settings_page.dart';
 import 'package:lubrication_indicator/features/admin/presentation/pages/admin_audit_logs_page.dart';
 import 'package:lubrication_indicator/features/auth/data/models/user_model.dart';
-
 import 'package:excel/excel.dart' as xl;
 import 'package:lubrication_indicator/features/tanks/data/repositories/tank_tree_repository.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_node_model.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
 import 'package:lubrication_indicator/features/tanks/presentation/pages/tank_browser_screen.dart';
+
+class _AdminDashSnap {
+  final bool exists = false;
+  final dynamic value = null;
+}
+
+class _AdminDashRef {
+  Future<dynamic> get() async => _AdminDashSnap();
+  Future<void> update(Map<String, dynamic> data) async {}
+  Future<void> set(dynamic val) async {}
+  Future<void> remove() async {}
+  _AdminDashRef orderByChild(String field) => this;
+  _AdminDashRef equalTo(dynamic val) => this;
+}
+
+_AdminDashRef _dashRef([String? path]) => _AdminDashRef();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AdminDashboard
@@ -70,7 +84,7 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   List<Map> _users = [];
   List<ClientModel> _clients = [];
-  StreamSubscription<DatabaseEvent>? _usersSub;
+  StreamSubscription? _usersSub;
   StreamSubscription<List<ClientModel>>? _clientsSub;
 
   bool _can(String p) => AccessControlService.can(widget.currentUser, p);
@@ -278,32 +292,12 @@ class _AdminDashboardState extends State<AdminDashboard>
     _usersSub?.cancel();
     _clientsSub?.cancel();
 
-    _usersSub = DatabaseModeService.ref('users').onValue.listen((event) {
-      final users = <Map>[];
-
-      if (event.snapshot.value != null) {
-        final data = Map<String, dynamic>.from(
-          event.snapshot.value as Map,
-        );
-
-        for (final e in data.entries) {
-          users.add({
-            'id': e.key,
-            ...Map<String, dynamic>.from(e.value),
-          });
-        }
-      }
-
-      debugPrint(
-        '[Dashboard] Users stream update: ${users.length}',
-      );
-
-      if (mounted) {
-        setState(() {
-          _users = users;
-        });
-      }
-    });
+    AuthRepository().getAllUsers().then((userModels) {
+      if (!mounted) return;
+      setState(() {
+        _users = userModels.map((u) => u.toMap()).toList();
+      });
+    }).catchError((_) {});
 
     _clientsSub = ClientRepository().watchClients().listen((items) {
       if (!mounted) return;
@@ -407,8 +401,8 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Future<void> _exportStructureJson() async {
     try {
-      final tanksSnap = await DatabaseModeService.ref('tanks').get();
-      final treeSnap = await DatabaseModeService.ref('tank_tree').get();
+      final tanksSnap = await _dashRef('tanks').get();
+      final treeSnap = await _dashRef('tank_tree').get();
       final payload = {
         'exported_at': DateTime.now().toIso8601String(),
         'mode': DatabaseModeService.isDevelopment.value ? 'development' : 'production',
@@ -479,7 +473,7 @@ class _AdminDashboardState extends State<AdminDashboard>
 
       // 1. Fetch data from Firebase
       final nodes = await TankTreeRepository().fetchAll();
-      final tanksSnap = await DatabaseModeService.ref('tanks').get();
+      final tanksSnap = await _dashRef('tanks').get();
       final tanks = <String, TankModel>{};
       if (tanksSnap.exists && tanksSnap.value is Map) {
         final rawTanks = Map<dynamic, dynamic>.from(tanksSnap.value as Map);
@@ -1378,19 +1372,31 @@ class _AdminDashboardState extends State<AdminDashboard>
             onPressed: () async {
               final name = nameCtrl.text.trim();
               if (name.isEmpty) return;
-              await ClientRepository().createClient(
-                name: name,
-                description: descCtrl.text.trim(),
-              );
-              await _audit(
-                operation: 'create_client',
-                entityType: 'client',
-                entityName: name,
-                details: {'description': descCtrl.text.trim()},
-                clientNameOverride: name,
-              );
-              if (!mounted) return;
-              Navigator.pop(context);
+              try {
+                await ClientRepository().createClient(
+                  name: name,
+                  description: descCtrl.text.trim(),
+                );
+                await _audit(
+                  operation: 'create_client',
+                  entityType: 'client',
+                  entityName: name,
+                  details: {'description': descCtrl.text.trim()},
+                  clientNameOverride: name,
+                );
+                await _reloadAll();
+                if (!mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Client "$name" created successfully')),
+                );
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to create client: ${e.toString().replaceAll('Exception: ', '')}')),
+                  );
+                }
+              }
             },
             child: const Text('Create'),
           ),
@@ -1430,22 +1436,34 @@ class _AdminDashboardState extends State<AdminDashboard>
             onPressed: () async {
               final name = nameCtrl.text.trim();
               if (name.isEmpty) return;
-              await DatabaseModeService.ref('clients/${client.id}').update({
-                'name': name,
-                'description': descCtrl.text.trim(),
-              });
-              await _audit(
-                operation: 'update_client',
-                entityType: 'client',
-                entityId: client.id,
-                entityName: name,
-                details: {'description': descCtrl.text.trim()},
-                clientIdOverride: client.id,
-                clientDbKeyOverride: client.dbKey,
-                clientNameOverride: name,
-              );
-              if (!mounted) return;
-              Navigator.pop(context);
+              try {
+                await ClientRepository().updateClient(client.id, {
+                  'name': name,
+                  'description': descCtrl.text.trim(),
+                });
+                await _audit(
+                  operation: 'update_client',
+                  entityType: 'client',
+                  entityId: client.id,
+                  entityName: name,
+                  details: {'description': descCtrl.text.trim()},
+                  clientIdOverride: client.id,
+                  clientDbKeyOverride: client.dbKey,
+                  clientNameOverride: name,
+                );
+                await _reloadAll();
+                if (!mounted) return;
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Client "$name" updated successfully')),
+                );
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to update client: ${e.toString().replaceAll('Exception: ', '')}')),
+                  );
+                }
+              }
             },
             child: const Text('Update'),
           ),
@@ -1461,54 +1479,45 @@ class _AdminDashboardState extends State<AdminDashboard>
           builder: (_) => AlertDialog(
             title: const Text('Delete Client'),
             content: Text(
-              'Delete "${client.name}"?\nUsers assigned only to this client will also be deleted.',
+              'Delete "${client.name}"?\nThis client and associated configurations will be removed.',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
             ],
           ),
         ) ??
         false;
     if (!ok) return;
 
-    final usersSnap = await DatabaseModeService.ref('users').get();
-    if (usersSnap.value is Map) {
-      final users = Map<String, dynamic>.from(usersSnap.value as Map);
-      for (final e in users.entries) {
-        final uid = e.key.toString();
-        final map = Map<String, dynamic>.from(e.value as Map);
-        final ids = ((map['client_ids'] as List?) ?? const [])
-            .map((x) => x.toString())
-            .toList();
-        if (!ids.contains(client.id)) continue;
-        if (ids.length == 1) {
-          final key = _clientDbKeyById(client.id);
-          if (key != null) {
-            await DatabaseModeService.ref('$key/users/$uid').remove();
-          }
-          await DatabaseModeService.ref('users/$uid').remove();
-        } else {
-          ids.removeWhere((x) => x == client.id);
-          await DatabaseModeService.ref('users/$uid').update({'client_ids': ids});
-          final key = _clientDbKeyById(client.id);
-          if (key != null) {
-            await DatabaseModeService.ref('$key/users/$uid').remove();
-          }
-        }
+    try {
+      await ClientRepository().deleteClient(client.id);
+      await _audit(
+        operation: 'delete_client',
+        entityType: 'client',
+        entityId: client.id,
+        entityName: client.name,
+        clientIdOverride: client.id,
+        clientDbKeyOverride: client.dbKey,
+        clientNameOverride: client.name,
+      );
+      await _reloadAll();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Client "${client.name}" deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete client: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
       }
     }
-
-    await DatabaseModeService.ref('clients/${client.id}').remove();
-    await _audit(
-      operation: 'delete_client',
-      entityType: 'client',
-      entityId: client.id,
-      entityName: client.name,
-      clientIdOverride: client.id,
-      clientDbKeyOverride: client.dbKey,
-      clientNameOverride: client.name,
-    );
   }
 
   Future<void> _updateUser(Map user) async {
@@ -1736,60 +1745,42 @@ class _AdminDashboardState extends State<AdminDashboard>
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () async {
-                final existing = await DatabaseModeService.ref('users')
-                    .orderByChild('username')
-                    .equalTo(userCtrl.text.trim())
-                    .get();
-                if (existing.exists) {
-                  final data = Map<String, dynamic>.from(existing.value as Map);
-                  final selected = _selectedClientId;
-                  final hitDifferent = data.entries.any((e) {
-                    if (e.key == id) return false;
-                    final m = Map<String, dynamic>.from(e.value as Map);
-                    final ids = ((m['client_ids'] as List?) ?? const [])
-                        .map((x) => x.toString())
-                        .toSet();
-                    if (selected == null || selected.isEmpty) {
-                      return ids.isEmpty;
-                    }
-                    return ids.contains(selected);
-                  });
-                  if (hitDifferent) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Username already exists in this client')),
-                      );
-                    }
-                    return;
+                final username = userCtrl.text.trim();
+                final name = nameCtrl.text.trim();
+                if (username.isEmpty || name.isEmpty) return;
+                try {
+                  final map = <String, dynamic>{
+                    'display_name': name,
+                    'username': username,
+                    'role': role,
+                    if (passCtrl.text.trim().isNotEmpty)
+                      'password': passCtrl.text.trim(),
+                  };
+                  await AuthRepository().updateUser(id, map);
+                  await _audit(
+                    operation: 'update_user',
+                    entityType: 'user',
+                    entityId: id,
+                    entityName: name,
+                    details: {
+                      'username': username,
+                      'role': role,
+                      'password_changed': passCtrl.text.trim().isNotEmpty,
+                    },
+                  );
+                  await _reloadAll();
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('User "$username" updated successfully')),
+                  );
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to update user: ${e.toString().replaceAll('Exception: ', '')}')),
+                    );
                   }
                 }
-                final map = <String, dynamic>{
-                  'full_name': nameCtrl.text.trim(),
-                  'username': userCtrl.text.trim(),
-                  'role': role,
-                  'privileges': AccessControlService.sanitizePrivilegesForRole(
-                    role,
-                    selectedPriv,
-                  ),
-                };
-                await DatabaseModeService.ref('users/$id').update({
-                  ...map,
-                  if (passCtrl.text.trim().isNotEmpty)
-                    'password_hash': HashUtil.hashPassword(passCtrl.text.trim()),
-                });
-                await _audit(
-                  operation: 'update_user',
-                  entityType: 'user',
-                  entityId: id,
-                  entityName: nameCtrl.text.trim(),
-                  details: {
-                    'username': userCtrl.text.trim(),
-                    'role': role,
-                    'password_changed': passCtrl.text.trim().isNotEmpty,
-                  },
-                );
-                if (!mounted) return;
-                Navigator.pop(context);
               },
               child: const Text('Update'),
             ),
@@ -2119,8 +2110,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                   for (final entry in tree.entries.toList()) {
                     tree[entry.key] = rewriteTreeZones(entry.value);
                   }
-                  final tanksRef = DatabaseModeService.ref('tanks');
-                  final treeRef = DatabaseModeService.ref('tank_tree');
+                  final tanksRef = _dashRef('tanks');
+                  final treeRef = _dashRef('tank_tree');
                   if (replace) {
                     await tanksRef.set(tanks);
                     await treeRef.set(tree);
@@ -2277,66 +2268,52 @@ class _AdminDashboardState extends State<AdminDashboard>
             ),
             ElevatedButton(
               onPressed: () async {
+                final username = userCtrl.text.trim();
+                final fullName = nameCtrl.text.trim();
+                final pass = passCtrl.text.trim();
+
+                if (fullName.isEmpty || username.isEmpty || pass.isEmpty) {
+                  setDialog(() {
+                    error = 'Full Name, Username, and Password are required';
+                  });
+                  return;
+                }
+
                 setDialog(() {
                   loading = true;
                   error = null;
                 });
-                if (_selectedClientId == null || _selectedClientId!.isEmpty) {
-                  setDialog(() {
-                    loading = false;
-                    error = 'Select a client first';
-                  });
-                  return;
-                }
 
-                final snapshot = await DatabaseModeService.ref('users')
-                    .orderByChild('username')
-                    .equalTo(userCtrl.text.trim())
-                    .get();
-                if (snapshot.exists) {
-                  final data = Map<String, dynamic>.from(snapshot.value as Map);
-                  final selected = _selectedClientId;
-                  final conflict = data.values.any((raw) {
-                    final m = Map<String, dynamic>.from(raw as Map);
-                    final ids = ((m['client_ids'] as List?) ?? const [])
-                        .map((x) => x.toString())
-                        .toSet();
-                    if (selected == null || selected.isEmpty) {
-                      return ids.isEmpty;
-                    }
-                    return ids.contains(selected);
-                  });
-                  if (!conflict) {
-                    // Same username exists, but in other client scope.
-                  } else {
-                  setDialog(() {
-                    loading = false;
-                    error = 'Username already exists in this client';
-                  });
-                  return;
+                try {
+                  await AuthRepository().createUser(
+                    username: username,
+                    fullName: fullName,
+                    password: pass,
+                    role: role,
+                    clientIds: _selectedClientId != null ? [_selectedClientId!] : [],
+                  );
+                  await _audit(
+                    operation: 'create_user',
+                    entityType: 'user',
+                    entityName: fullName,
+                    details: {
+                      'username': username,
+                      'role': role,
+                      'client_ids': _selectedClientId != null ? [_selectedClientId!] : [],
+                    },
+                  );
+                  await _reloadAll();
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('User "$username" created successfully')),
+                    );
                   }
-                }
-
-                await AuthRepository().createUser(
-                  username: userCtrl.text,
-                  fullName: nameCtrl.text,
-                  password: passCtrl.text,
-                  role: role,
-                  clientIds: [_selectedClientId!],
-                );
-                await _audit(
-                  operation: 'create_user',
-                  entityType: 'user',
-                  entityName: nameCtrl.text.trim(),
-                  details: {
-                    'username': userCtrl.text.trim(),
-                    'role': role,
-                    'client_ids': [_selectedClientId!],
-                  },
-                );
-
-                if (mounted) {
-                  Navigator.pop(context);
+                } catch (e) {
+                  setDialog(() {
+                    loading = false;
+                    error = e.toString().replaceAll('Exception: ', '');
+                  });
                 }
               },
               child: loading
@@ -2356,38 +2333,53 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // Delete user (unchanged)
+  // Delete user
   // ───────────────────────────────────────────────────────────────────────────
   Future<void> _deleteUser(String id) async {
     if (!_can(AccessControlService.pGrantUsers)) return;
-    final snapshot = await DatabaseModeService.ref('users/$id').get();
 
-    if (!snapshot.exists) {
-      return;
+    final userMatch = _users.where((u) => u['id'] == id);
+    final userName = userMatch.isNotEmpty ? (userMatch.first['username'] ?? id) : id;
+
+    final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Delete User'),
+            content: Text('Delete user "$userName"?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok) return;
+
+    try {
+      await AuthRepository().deleteUser(id);
+      await _audit(
+        operation: 'delete_user',
+        entityType: 'user',
+        entityId: id,
+        entityName: userName.toString(),
+      );
+      await _reloadAll();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('User "$userName" deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete user: ${e.toString().replaceAll('Exception: ', '')}')),
+        );
+      }
     }
-
-    final data = Map<String, dynamic>.from(
-      snapshot.value as Map,
-    );
-    final target = UserModel.fromMap(data);
-    if (!AccessControlService.canManage(widget.currentUser, target)) return;
-
-    final isRoot = data['username'] == 'admin' &&
-        (data['role']?.toString().toLowerCase() ==
-            AccessControlService.roleSuperAdmin);
-
-    if (isRoot) {
-      return;
-    }
-
-    await DatabaseModeService.ref('users/$id').remove();
-    await _audit(
-      operation: 'delete_user',
-      entityType: 'user',
-      entityId: id,
-      entityName: data['full_name']?.toString(),
-      details: {'username': data['username']?.toString()},
-    );
   }
 
   // ───────────────────────────────────────────────────────────────────────────

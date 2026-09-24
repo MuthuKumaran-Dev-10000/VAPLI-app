@@ -95,7 +95,6 @@ class _DashboardTabState extends State<DashboardTab> {
   bool _showActiveAlerts = true;
   bool _showInspectionCompliance = true;
 
-  DatabaseReference _ref(String path) => DatabaseModeService.ref(path);
   void _snack(String msg, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1124,10 +1123,7 @@ class _DashboardTabState extends State<DashboardTab> {
         statsByTank[tank.id] = await statsRepo.getStats(tank.id);
       }
 
-      final formatSettingsSnap = await DatabaseModeService.ref('settings/report_format').get();
-      final formatSettings = formatSettingsSnap.exists && formatSettingsSnap.value != null
-          ? Map<String, dynamic>.from(formatSettingsSnap.value as Map)
-          : <String, dynamic>{};
+      final formatSettings = await _fetchReportFormatConfigs();
 
       final openAlerts = _allAlerts.where((a) => !a.acknowledged).toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -1519,14 +1515,6 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   Future<Map<String, dynamic>> _fetchReportFormatConfigs() async {
-    try {
-      final snap = await DatabaseModeService.ref('settings/report_format').get();
-      if (snap.exists && snap.value != null) {
-        return Map<String, dynamic>.from(snap.value as Map);
-      }
-    } catch (e) {
-      debugPrint('[PDF/Excel Export] Fetch format settings error: $e');
-    }
     return {};
   }
 
@@ -3122,28 +3110,22 @@ class _DashboardTabState extends State<DashboardTab> {
 
   // ── Alert stream ───────────────────────────────────────────────────────────
 
-  void _subscribeAlerts() {
+  void _subscribeAlerts() async {
     _alertSub?.cancel();
-    _alertSub = _ref('alerts').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) {
+    try {
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
+      final response = await ApiClient.get('/clients/$clientId/alerts');
+      if (response is Map && response['success'] == true && response['data'] != null) {
+        final list = (response['data'] as List)
+            .map((v) => _AlertModel.fromMap(Map<dynamic, dynamic>.from(v as Map)))
+            .toList();
         if (mounted) {
-          setState(() {
-            _allAlerts = [];
-            _folderGroups = [];
-          });
+          setState(() => _allAlerts = list);
+          _updateFolderGroups();
         }
-        return;
       }
-      final raw = Map<dynamic, dynamic>.from(snap.value as Map);
-      final list = raw.values
-          .map((v) => _AlertModel.fromMap(Map<dynamic, dynamic>.from(v as Map)))
-          .toList();
-      if (mounted) {
-        setState(() => _allAlerts = list);
-        _updateFolderGroups();
-      }
-    });
+    } catch (_) {}
   }
 
   Future<void> _updateFolderGroups() async {
@@ -3188,41 +3170,36 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  void _subscribeCompleted() {
+  void _subscribeCompleted() async {
     _completedSub?.cancel();
-    _completedSub = _ref('completed_tasks').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) {
+    try {
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
+      final response = await ApiClient.get('/clients/$clientId/completed-tasks');
+      if (response is Map && response['success'] == true && response['data'] != null) {
+        final list = <_CompletedTask>[];
+        for (final v in (response['data'] as List)) {
+          final m = Map<dynamic, dynamic>.from(v as Map);
+          final alertMap = m['alert'];
+          if (alertMap == null) continue;
+          list.add(_CompletedTask(
+            alertId: m['alert_id']?.toString() ?? '',
+            completedAt: m['completed_at']?.toString() ?? '',
+            completedBy: m['completed_by']?.toString() ?? '',
+            completedDescription: m['completed_description']?.toString() ?? '',
+            completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
+            alert: _AlertModel.fromMap(Map<dynamic, dynamic>.from(alertMap as Map)),
+          ));
+        }
+        list.sort((a, b) => b.completedAt.compareTo(a.completedAt));
         if (mounted) {
           setState(() {
-            _completed = [];
-            _completedFolderGroups = [];
+            _completed = list;
+            _updateCompletedFolderGroups();
           });
         }
-        return;
       }
-      final raw = Map<dynamic, dynamic>.from(snap.value as Map);
-      final list = <_CompletedTask>[];
-      for (final v in raw.values) {
-        final m = Map<dynamic, dynamic>.from(v as Map);
-        final alertMap = m['alert'];
-        if (alertMap == null) continue;
-        list.add(_CompletedTask(
-          alertId: m['alert_id']?.toString() ?? '',
-          completedAt: m['completed_at']?.toString() ?? '',
-          completedBy: m['completed_by']?.toString() ?? '',
-          completedDescription: m['completed_description']?.toString() ?? '',
-          completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
-          alert:
-              _AlertModel.fromMap(Map<dynamic, dynamic>.from(alertMap as Map)),
-        ));
-      }
-      list.sort((a, b) => b.completedAt.compareTo(a.completedAt));
-      if (mounted) {
-        setState(() => _completed = list);
-        _updateCompletedFolderGroups();
-      }
-    });
+    } catch (_) {}
   }
 
   Future<void> _updateCompletedFolderGroups() async {
@@ -3272,35 +3249,19 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  void _subscribeSettings() {
+  void _subscribeSettings() async {
     _settingsSub?.cancel();
-    _settingsSub = _ref('settings/dashboard_display').onValue.listen((event) {
-      final snap = event.snapshot;
-      if (!snap.exists || snap.value == null) {
-        if (mounted) {
-          setState(() {
-            _showInspectionValues = true;
-            _showCompletedAlerts = true;
-            _showActiveAlerts = true;
-            _showInspectionCompliance = true;
-          });
-        }
-        return;
+    try {
+      final data = await AppSettingsService.getDashboardDisplaySettings();
+      if (mounted) {
+        setState(() {
+          _showInspectionValues = data['show_inspection_values'] ?? true;
+          _showCompletedAlerts = data['show_completed_alerts'] ?? true;
+          _showActiveAlerts = data['show_active_alerts'] ?? true;
+          _showInspectionCompliance = data['show_inspection_compliance'] ?? true;
+        });
       }
-      try {
-        final data = Map<dynamic, dynamic>.from(snap.value as Map);
-        if (mounted) {
-          setState(() {
-            _showInspectionValues = data['show_inspection_values'] ?? true;
-            _showCompletedAlerts = data['show_completed_alerts'] ?? true;
-            _showActiveAlerts = data['show_active_alerts'] ?? true;
-            _showInspectionCompliance = data['show_inspection_compliance'] ?? true;
-          });
-        }
-      } catch (_) {
-        // Fallbacks
-      }
-    });
+    } catch (_) {}
   }
 
   // ── Expected-avg alert generator ──────────────────────────────────────────
@@ -3323,13 +3284,8 @@ class _DashboardTabState extends State<DashboardTab> {
 
       // avg exceeded → synthesise alert
       final alertId = 'avg_${tank.id}_${p['id']}';
-      final existing = await _ref('alerts/$alertId').get();
-      if (existing.exists) {
-        final ack = (existing.value as Map?)?['acknowledged'];
-        if (ack == true) continue; // already handled
-        continue; // already present and open
-      }
-
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
       final alert = {
         'id': alertId,
         'alert_title': 'Avg Exceeded Expected',
@@ -3349,9 +3305,9 @@ class _DashboardTabState extends State<DashboardTab> {
         'timestamp': DateTime.now().toIso8601String(),
         'acknowledged': false,
         'live': false,
-        'status': 'active', // 🔖 Added for Alert Lifecycle Bug Fix
+        'status': 'active',
       };
-      await _ref('alerts/$alertId').set(alert);
+      await ApiClient.post('/clients/$clientId/alerts', alert);
       debugPrint('[Dashboard] Expected-avg alert written: $alertId');
     }
   }
@@ -3359,31 +3315,7 @@ class _DashboardTabState extends State<DashboardTab> {
   // ── Complete task ──────────────────────────────────────────────────────────
 
   Future<String> _uploadCompletedTaskPhoto(File file) async {
-    final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
-    const folder = 'dashboard_completed_tasks';
-    final sig = crypto.sha1
-        .convert(
-          utf8.encode(
-            'folder=$folder&timestamp=$ts${EnvConfig.cloudinaryApiSecret}',
-          ),
-        )
-        .toString();
-    final req = http.MultipartRequest('POST',
-        Uri.parse(
-          'https://api.cloudinary.com/v1_1/${EnvConfig.cloudinaryCloudName}/image/upload',
-        ));
-    req.fields['api_key'] = EnvConfig.cloudinaryApiKey;
-    req.fields['timestamp'] = ts;
-    req.fields['signature'] = sig;
-    req.fields['folder'] = folder;
-    req.files.add(await http.MultipartFile.fromPath('file', file.path,
-        contentType:
-            MediaType.parse(lookupMimeType(file.path) ?? 'image/jpeg')));
-    final res = await http.Response.fromStream(await req.send());
-    if (res.statusCode != 200) {
-      throw Exception('Photo upload failed (${res.statusCode})');
-    }
-    return (json.decode(res.body) as Map)['secure_url'] as String;
+    return await ApiClient.uploadFile(file);
   }
 
   // ── Complete task ──────────────────────────────────────────────────────────
@@ -3393,9 +3325,11 @@ class _DashboardTabState extends State<DashboardTab> {
     final taskId = 'task_${alert.id}';
     final now = DateTime.now().toIso8601String();
     final firstUrl = photoUrls.isNotEmpty ? photoUrls.first : '';
+    final client = await ClientContextService.getActiveClient();
+    final clientId = client?.id ?? 'dummy_client_id';
 
-    // Write to completed_tasks/
-    await _ref('completed_tasks/$taskId').set({
+    await ApiClient.post('/clients/$clientId/completed-tasks', {
+      'id': taskId,
       'alert_id': alert.id,
       'completed_at': now,
       'completed_by': completedByName,
@@ -3429,8 +3363,7 @@ class _DashboardTabState extends State<DashboardTab> {
       },
     });
 
-    // Mark acknowledged and status: COMPLETED in alerts/
-    await _ref('alerts/${alert.id}').update({
+    await ApiClient.put('/clients/$clientId/alerts/${alert.id}', {
       'acknowledged': true,
       'status': 'COMPLETED',
       'completed_description': description,
@@ -7766,12 +7699,18 @@ class _DashboardTabState extends State<DashboardTab> {
     return generatedHex;
   }
 
-  void _flushParamColors(List<Map<String, dynamic>> pendingDbWrites) {
+  void _flushParamColors(List<Map<String, dynamic>> pendingDbWrites) async {
     if (pendingDbWrites.isEmpty) return;
     try {
-      final dbRef = FirebaseDatabase.instance.ref('settings/report_format/param_colors');
+      final client = await ClientContextService.getActiveClient();
+      final clientId = client?.id ?? 'dummy_client_id';
       for (final write in pendingDbWrites) {
-        dbRef.child(write['key']).update(Map<String, dynamic>.from(write['data']));
+        final key = write['key'];
+        final data = Map<String, dynamic>.from(write['data']);
+        await ApiClient.put('/clients/$clientId/settings', {
+          'key': 'report_format/param_colors/$key',
+          'value': data,
+        });
       }
     } catch (_) {}
   }
