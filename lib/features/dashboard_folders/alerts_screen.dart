@@ -82,7 +82,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
         final now = DateTime.now();
         filtered = filtered.where((a) {
           try {
-            final dt = DateTime.parse(a.timestamp);
+            final dt = DateTime.tryParse(a.timestamp) ?? DateTime.tryParse(a.timestamp.replaceFirst(' ', 'T'));
+            if (dt == null) return false;
             return dt.year == now.year && dt.month == now.month && dt.day == now.day;
           } catch (_) {
             return false;
@@ -122,7 +123,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
         final now = DateTime.now();
         filtered = filtered.where((a) {
           try {
-            final dt = DateTime.parse(a.timestamp);
+            final dt = DateTime.tryParse(a.timestamp) ?? DateTime.tryParse(a.timestamp.replaceFirst(' ', 'T'));
+            if (dt == null) return false;
             return dt.year == now.year && dt.month == now.month && dt.day == now.day;
           } catch (_) {
             return false;

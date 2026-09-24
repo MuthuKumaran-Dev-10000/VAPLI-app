@@ -29,6 +29,7 @@ class DashboardAlertDisplayItem {
   final int severityRating;
   final String dueTimeRange;
   final String dueDate;
+  final String constraintValue;
 
   DashboardAlertDisplayItem({
     required this.id,
@@ -50,6 +51,7 @@ class DashboardAlertDisplayItem {
     required this.acknowledged,
     required this.isLive,
     required this.status,
+    this.constraintValue = '',
     this.readingId = '',
     this.ifThen = '',
     this.completedDescription = '',
@@ -74,6 +76,7 @@ class DashboardAlertDisplayItem {
       'param_id': paramId,
       'param_label': paramLabel,
       'param_value': paramValue,
+      'constraint_value': constraintValue,
       'captured_by': capturedBy,
       'captured_by_name': capturedByName,
       'image_url': imageUrl,
@@ -144,6 +147,19 @@ class DashboardAlertDisplayItem {
             ? [m['completed_photo_url'].toString()]
             : []);
 
+    String parseFirstNonEmpty(List<String> keys, {String fallback = ''}) {
+      for (final k in keys) {
+        final val = m[k]?.toString().trim();
+        if (val != null && val.isNotEmpty && val.toLowerCase() != 'general' && val != '.') {
+          return val;
+        }
+      }
+      return fallback;
+    }
+
+    final parsedParamLabel = parseFirstNonEmpty(['param_label', 'label', 'constraint_label', 'param_name']);
+    final parsedAlertTitle = parseFirstNonEmpty(['alert_title', 'constraint_label', 'label', 'message'], fallback: 'Alert');
+
     final int rating = int.tryParse(m['severity_rating']?.toString() ?? '') ?? 50;
     final String timeRange = m['due_time_range']?.toString() ?? 'today';
     final String dueDateStr = m['due_date']?.toString() ?? '';
@@ -153,16 +169,17 @@ class DashboardAlertDisplayItem {
 
     return DashboardAlertDisplayItem(
       id: m['id']?.toString() ?? '',
-      alertTitle: m['alert_title']?.toString() ?? '',
+      alertTitle: parsedAlertTitle,
       message: m['message']?.toString() ?? '',
-      op: m['op']?.toString() ?? '',
+      op: (m['op'] ?? m['constraint_op'])?.toString() ?? '',
       severity: sev,
       tankId: m['tank_id']?.toString() ?? '',
       tankName: m['tank_name']?.toString() ?? '',
       tankCode: m['tank_code']?.toString() ?? '',
       paramId: m['param_id']?.toString() ?? '',
-      paramLabel: m['param_label']?.toString() ?? '',
-      paramValue: m['param_value']?.toString() ?? '',
+      paramLabel: parsedParamLabel.isNotEmpty ? parsedParamLabel : 'System Alert',
+      paramValue: (m['param_value'] ?? m['violated_value'] ?? m['value_json'] ?? m['value'] ?? m['val'])?.toString() ?? '',
+      constraintValue: (m['constraint_value'] ?? m['compare_value'] ?? m['threshold_value'] ?? m['param_value'] ?? m['value_json'])?.toString() ?? '',
       capturedBy: m['captured_by']?.toString() ?? '',
       capturedByName: m['captured_by_name']?.toString() ?? '',
       imageUrl: m['image_url']?.toString() ?? '',

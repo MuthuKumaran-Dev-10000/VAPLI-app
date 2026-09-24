@@ -21,6 +21,9 @@ class _DetailRow extends StatelessWidget {
 
   String _beautifyConstraint(String raw) {
     if (raw.trim().isEmpty) return '—';
+    if (raw.startsWith('IF ') || raw.contains(' THEN ')) {
+      return raw.trim();
+    }
 
     final v = raw
         .replaceAll('_', ' ')

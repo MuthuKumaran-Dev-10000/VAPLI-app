@@ -115,12 +115,19 @@ class AlertModel {
     'captured_by':               capturedBy,
     'captured_by_name':          capturedByName,
     'captured_at':               capturedAt,
+    'timestamp':                 capturedAt,
     'constraint_id':             constraintId,
+    'param_id':                  constraintId,
     'constraint_op':             constraintOp,
+    'op':                        constraintOp,
     'constraint_value':          constraintValue,
     'constraint_severity':       constraintSeverity,
+    'severity':                  constraintSeverity,
     'constraint_label':          constraintLabel,
+    'param_label':               constraintLabel,
+    'label':                     constraintLabel,
     'violated_value':            violatedValue,
+    'param_value':               violatedValue,
     'alert_title':               alertTitle,
     'message':                   message,
     'show_dashboard_alert':      showDashboardAlert,
@@ -129,10 +136,11 @@ class AlertModel {
     'block_submission':          blockSubmission,
     'last_inspection_values':    lastInspectionValues,
     'resolved':                  resolved,
+    'acknowledged':              resolved,
     'resolved_at':               resolvedAt,
     'resolved_by':               resolvedBy,
     'status':                    status,
-    'if_then':                   ifThen, // 🔖 Added for IF-THEN detail
+    'if_then':                   ifThen,
   };
 
   factory AlertModel.fromMap(String id, Map<dynamic, dynamic> m) {
@@ -147,10 +155,24 @@ class AlertModel {
       return defaultValue;
     }
 
+    String parseFirstNonEmpty(List<String> keys, {String fallback = ''}) {
+      for (final k in keys) {
+        final val = m[k]?.toString().trim();
+        if (val != null && val.isNotEmpty && val.toLowerCase() != 'general' && val != '.') {
+          return val;
+        }
+      }
+      return fallback;
+    }
+
     Map<String, dynamic> inspVals = {};
     if (m['last_inspection_values'] is Map) {
       inspVals = Map<String, dynamic>.from(m['last_inspection_values'] as Map);
     }
+
+    final parsedParamLabel = parseFirstNonEmpty(['param_label', 'label', 'constraint_label', 'param_name']);
+    final parsedAlertTitle = parseFirstNonEmpty(['alert_title', 'constraint_label', 'label', 'message'], fallback: 'Alert');
+
     return AlertModel(
       id:                        id,
       tankId:                    m['tank_id']?.toString()             ?? '',
@@ -160,26 +182,26 @@ class AlertModel {
       tankPath:                  m['tank_path']?.toString(),
       readingId:                 m['reading_id']?.toString()          ?? '',
       capturedBy:                m['captured_by']?.toString()         ?? '',
-      capturedByName:            m['captured_by_name']?.toString()    ?? '',
-      capturedAt:                m['captured_at']?.toString()         ?? '',
-      constraintId:              m['constraint_id']?.toString()       ?? '',
-      constraintOp:              m['constraint_op']?.toString()       ?? '',
-      constraintValue:           m['constraint_value']?.toString()    ?? '',
-      constraintSeverity:        m['constraint_severity']?.toString() ?? 'warning',
-      constraintLabel:           m['constraint_label']?.toString()    ?? '',
-      violatedValue:             m['violated_value']?.toString()      ?? '',
-      alertTitle:                m['alert_title']?.toString()         ?? 'Alert',
+      capturedByName:            (m['captured_by_name'] ?? m['captured_by'])?.toString() ?? 'System Administrator',
+      capturedAt:                (m['captured_at'] ?? m['timestamp'])?.toString() ?? '',
+      constraintId:              (m['constraint_id'] ?? m['param_id'])?.toString() ?? '',
+      constraintOp:              (m['constraint_op'] ?? m['op'])?.toString() ?? '',
+      constraintValue:           (m['constraint_value'] ?? m['compare_value'] ?? m['threshold_value'] ?? m['param_value'] ?? m['value_json'])?.toString() ?? '',
+      constraintSeverity:        (m['constraint_severity'] ?? m['severity'])?.toString() ?? 'warning',
+      constraintLabel:           parsedParamLabel.isNotEmpty ? parsedParamLabel : 'System Alert',
+      violatedValue:             (m['violated_value'] ?? m['param_value'] ?? m['value_json'] ?? m['value'] ?? m['val'])?.toString() ?? '',
+      alertTitle:                parsedAlertTitle,
       message:                   m['message']?.toString()             ?? '',
-      showDashboardAlert:        parseBool(m['show_dashboard_alert']),
+      showDashboardAlert:        parseBool(m['show_dashboard_alert'], defaultValue: true),
       playSound:                 parseBool(m['play_sound']),
       captureImageOnViolation:   parseBool(m['capture_image_on_violation']),
       blockSubmission:           parseBool(m['block_submission']),
       lastInspectionValues:      inspVals,
-      resolved:                  parseBool(m['resolved']),
+      resolved:                  parseBool(m['resolved'] ?? m['acknowledged']),
       resolvedAt:                m['resolved_at']?.toString(),
       resolvedBy:                m['resolved_by']?.toString(),
       status:                    m['status']?.toString()              ?? 'active',
-      ifThen:                    m['if_then']?.toString(), // 🔖 Added for IF-THEN detail
+      ifThen:                    m['if_then']?.toString(),
     );
   }
 

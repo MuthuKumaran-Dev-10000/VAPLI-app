@@ -117,18 +117,30 @@ class _AlertCardState extends State<_AlertCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // All DB fields
-                  _DetailRow('Message', a.message),
+                  _DetailRow('Message', a.message.isNotEmpty ? a.message : a.alertTitle),
                   _DetailRow('Asset', '${a.tankName} (${a.tankCode})'),
                   _DetailRow('Parameter', a.paramLabel),
-                  _DetailRow('Value', a.paramValue),
-                  _DetailRow('Captured By', a.capturedByName),
+                  _DetailRow('Value', (a.paramValue.trim().isNotEmpty && a.paramValue != 'null') ? a.paramValue : ((a.constraintValue.trim().isNotEmpty && a.constraintValue != 'null') ? a.constraintValue : 'Violated Reading')),
+                  _DetailRow('Captured By', a.capturedByName.isNotEmpty ? a.capturedByName : 'System Administrator'),
                   _DetailRow('Timestamp', _fmtTs(a.timestamp)),
-                  // _DetailRow('Constraint ', a.constraintId),
                   _DetailRow(
-  'Constraint',
-  '${a.paramLabel} ${a.op} ${a.paramValue} then ${a.message}',
-),
+                    'Constraint',
+                    () {
+                      final cleanLabel = a.paramLabel.trim().isNotEmpty ? a.paramLabel.trim() : 'Parameter';
+                      final cleanOp = (a.op.trim().isNotEmpty && a.op.trim() != 'null') ? a.op.trim() : '==';
+                      String val = a.constraintValue.trim();
+                      if (val.isEmpty || val == 'null' || val == '""') {
+                        val = a.paramValue.trim();
+                      }
+                      if (val.isEmpty || val == 'null' || val == '""') {
+                        val = 'Violated';
+                      }
+                      final cleanMsg = a.message.trim().isNotEmpty 
+                          ? a.message.trim() 
+                          : (a.alertTitle.trim().isNotEmpty ? a.alertTitle.trim() : 'Action Required');
+                      return 'IF $cleanLabel $cleanOp "$val" THEN $cleanMsg';
+                    }(),
+                  ),
                   if (a.imageUrl.isNotEmpty) _DetailRow('Image', a.imageUrl),
                   if (a.ifThen.isNotEmpty) _DetailRow('IF-THEN Detail', a.ifThen),
                   _DetailRow('Alert ID', a.id),

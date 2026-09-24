@@ -267,8 +267,26 @@ class _FullScreenSlideViewerState extends State<FullScreenSlideViewer> {
             children: [
               _buildPopupRow('Asset', '${alert.tankName} (${alert.tankCode})'),
               _buildPopupRow('Parameter', alert.paramLabel),
-              _buildPopupRow('Value', alert.paramValue),
-              _buildPopupRow('Message', alert.message),
+              _buildPopupRow('Value', (alert.paramValue.trim().isNotEmpty && alert.paramValue != 'null') ? alert.paramValue : ((alert.constraintValue.trim().isNotEmpty && alert.constraintValue != 'null') ? alert.constraintValue : 'Violated Reading')),
+              _buildPopupRow(
+                'Constraint',
+                () {
+                  final cleanLabel = alert.paramLabel.trim().isNotEmpty ? alert.paramLabel.trim() : 'Parameter';
+                  final cleanOp = (alert.op.trim().isNotEmpty && alert.op.trim() != 'null') ? alert.op.trim() : '==';
+                  String val = alert.constraintValue.trim();
+                  if (val.isEmpty || val == 'null' || val == '""') {
+                    val = alert.paramValue.trim();
+                  }
+                  if (val.isEmpty || val == 'null' || val == '""') {
+                    val = 'Violated';
+                  }
+                  final cleanMsg = alert.message.trim().isNotEmpty 
+                      ? alert.message.trim() 
+                      : (alert.alertTitle.trim().isNotEmpty ? alert.alertTitle.trim() : 'Action Required');
+                  return 'IF $cleanLabel $cleanOp "$val" THEN $cleanMsg';
+                }(),
+              ),
+              _buildPopupRow('Message', alert.message.isNotEmpty ? alert.message : alert.alertTitle),
               _buildPopupRow('Severity', alert.severity.toUpperCase(), valueColor: color),
               if (alert.completedDescription.isNotEmpty)
                 _buildPopupRow('Resolution Proof', alert.completedDescription, valueColor: const Color(0xFF22C55E)),

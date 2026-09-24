@@ -211,17 +211,38 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  String _fmtPdfTs(String? iso) {
-    if (iso == null || iso.trim().isEmpty) return '-';
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return iso;
+  DateTime? _tryParseDate(dynamic input) {
+    if (input == null) return null;
+    if (input is DateTime) return input;
+    final str = input.toString().trim();
+    if (str.isEmpty) return null;
+
+    final numVal = int.tryParse(str);
+    if (numVal != null) {
+      if (str.length >= 12) {
+        return DateTime.fromMillisecondsSinceEpoch(numVal);
+      } else if (str.length >= 9) {
+        return DateTime.fromMillisecondsSinceEpoch(numVal * 1000);
+      }
+    }
+
+    final parsed = DateTime.tryParse(str) ?? DateTime.tryParse(str.replaceFirst(' ', 'T'));
+    if (parsed != null) return parsed;
+
+    return null;
+  }
+
+  String _fmtPdfTs(dynamic iso) {
+    if (iso == null) return '-';
+    final dt = _tryParseDate(iso)?.toLocal();
+    if (dt == null) return iso.toString().trim().isEmpty ? '-' : iso.toString();
     return DateFormat('dd MMM yyyy, HH:mm').format(dt);
   }
 
-  String _fmtPdfDateOnly(String? iso) {
-    if (iso == null || iso.trim().isEmpty) return '-';
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return iso;
+  String _fmtPdfDateOnly(dynamic iso) {
+    if (iso == null) return '-';
+    final dt = _tryParseDate(iso)?.toLocal();
+    if (dt == null) return iso.toString().trim().isEmpty ? '-' : iso.toString();
     return DateFormat('dd MMM yyyy').format(dt);
   }
 
@@ -456,7 +477,8 @@ class _DashboardTabState extends State<DashboardTab> {
   bool _isCapturedToday(String? capturedAt) {
     if (capturedAt == null) return false;
     try {
-      final dt = DateTime.parse(capturedAt).toLocal();
+      final dt = _tryParseDate(capturedAt)?.toLocal();
+      if (dt == null) return false;
       final now = DateTime.now();
       return dt.year == now.year && dt.month == now.month && dt.day == now.day;
     } catch (_) {
@@ -1325,7 +1347,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     final tankId = rec['tankId'] as String;
                     final tankCode = rec['tankCode'] as String;
                     final tankName = rec['tankName'] as String;
-                    final dateStr = DateFormat('dd MMMM yyyy - HH:mm').format(DateTime.parse(rec['date'] as String).toLocal());
+                    final dateStr = _fmtPdfTs(rec['date']);
                     final values = rec['values'] as Map<String, dynamic>;
                     final stats = statsByTank[tankId];
 
@@ -2108,9 +2130,9 @@ class _DashboardTabState extends State<DashboardTab> {
             final folderTankIds = folderTanks.map((t) => t.id).toSet();
             final folderReadings = filtered.where((r) => folderTankIds.contains(r.tankId)).toList();
             final datesSet = folderReadings.map((r) {
-              final dt = DateTime.parse(r.capturedAt).toLocal();
-              return DateFormat('yyyy-MM-dd').format(dt);
-            }).toSet().toList()
+              final dt = _tryParseDate(r.capturedAt)?.toLocal();
+              return dt != null ? DateFormat('yyyy-MM-dd').format(dt) : null;
+            }).whereType<String>().toSet().toList()
               ..sort((a, b) => b.compareTo(a));
 
             if (datesSet.isEmpty) {
@@ -2176,10 +2198,10 @@ class _DashboardTabState extends State<DashboardTab> {
 
           final Set<String> activeDateStrings = {};
           for (final r in folderReadings) {
-            final dt = DateTime.parse(r.capturedAt).toLocal();
-            activeDateStrings.add(DateFormat('yyyy-MM-dd').format(dt));
+            final dt = _tryParseDate(r.capturedAt)?.toLocal();
+            if (dt != null) activeDateStrings.add(DateFormat('yyyy-MM-dd').format(dt));
           }
-          final List<DateTime> days = activeDateStrings.map((s) => DateTime.parse(s)).toList()
+          final List<DateTime> days = activeDateStrings.map((s) => _tryParseDate(s)).whereType<DateTime>().toList()
             ..sort((a, b) => a.compareTo(b));
 
           if (days.isEmpty) {
@@ -2322,7 +2344,7 @@ class _DashboardTabState extends State<DashboardTab> {
       ];
 
       for (final a in openAlerts) {
-        final alertDate = DateFormat('dd-MM-yyyy HH:mm').format(DateTime.parse(a.timestamp).toLocal());
+        final alertDate = _fmtPdfTs(a.timestamp);
         final sevColor = a.severity.toLowerCase() == 'critical'
             ? pdf.PdfColor.fromInt(0xFFF2E6E6)
             : (a.severity.toLowerCase() == 'warning' ? pdf.PdfColor.fromInt(0xFFF7EAD7) : pdf.PdfColor.fromInt(0xFFECEFF1));
@@ -2588,9 +2610,9 @@ class _DashboardTabState extends State<DashboardTab> {
             final folderTankIds = folderTanks.map((t) => t.id).toSet();
             final folderReadings = filtered.where((r) => folderTankIds.contains(r.tankId)).toList();
             final datesSet = folderReadings.map((r) {
-              final dt = DateTime.parse(r.capturedAt).toLocal();
-              return DateFormat('yyyy-MM-dd').format(dt);
-            }).toSet().toList()
+              final dt = _tryParseDate(r.capturedAt)?.toLocal();
+              return dt != null ? DateFormat('yyyy-MM-dd').format(dt) : null;
+            }).whereType<String>().toSet().toList()
               ..sort((a, b) => b.compareTo(a));
 
             if (datesSet.isEmpty) {
@@ -2660,10 +2682,10 @@ class _DashboardTabState extends State<DashboardTab> {
 
           final Set<String> activeDateStrings = {};
           for (final r in folderReadings) {
-            final dt = DateTime.parse(r.capturedAt).toLocal();
-            activeDateStrings.add(DateFormat('yyyy-MM-dd').format(dt));
+            final dt = _tryParseDate(r.capturedAt)?.toLocal();
+            if (dt != null) activeDateStrings.add(DateFormat('yyyy-MM-dd').format(dt));
           }
-          final List<DateTime> days = activeDateStrings.map((s) => DateTime.parse(s)).toList()
+          final List<DateTime> days = activeDateStrings.map((s) => _tryParseDate(s)).whereType<DateTime>().toList()
             ..sort((a, b) => a.compareTo(b));
 
           if (days.isEmpty) {
@@ -2879,7 +2901,7 @@ class _DashboardTabState extends State<DashboardTab> {
         activeRow++;
 
         for (final a in activeAlerts) {
-          final dateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(a.timestamp).toLocal());
+          final dateStr = _fmtPdfTs(a.timestamp);
           activeSheet.appendRow([
             xl.TextCellValue(dateStr),
             xl.TextCellValue(a.tankName),
@@ -2934,8 +2956,8 @@ class _DashboardTabState extends State<DashboardTab> {
 
         for (final c in completedAlerts) {
           final a = c.alert;
-          final compDateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(c.completedAt).toLocal());
-          final alertDateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(a.timestamp).toLocal());
+          final compDateStr = _fmtPdfTs(c.completedAt);
+          final alertDateStr = _fmtPdfTs(a.timestamp);
           completedSheet.appendRow([
             xl.TextCellValue(compDateStr),
             xl.TextCellValue(alertDateStr),
@@ -3040,9 +3062,9 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  bool _inRange(String? iso, DateTimeRange range) {
-    if (iso == null || iso.isEmpty) return false;
-    final dt = DateTime.tryParse(iso)?.toLocal();
+  bool _inRange(dynamic iso, DateTimeRange range) {
+    if (iso == null) return false;
+    final dt = _tryParseDate(iso)?.toLocal();
     if (dt == null) return false;
     return !dt.isBefore(range.start) && !dt.isAfter(range.end);
   }
@@ -3144,6 +3166,7 @@ class _DashboardTabState extends State<DashboardTab> {
         paramId: a.paramId,
         paramLabel: a.paramLabel,
         paramValue: a.paramValue,
+        constraintValue: a.constraintValue,
         capturedBy: a.capturedBy,
         capturedByName: a.capturedByName,
         imageUrl: a.imageUrl,
@@ -3220,6 +3243,7 @@ class _DashboardTabState extends State<DashboardTab> {
           paramId: a.paramId,
           paramLabel: a.paramLabel,
           paramValue: a.paramValue,
+          constraintValue: a.constraintValue,
           capturedBy: a.capturedBy,
           capturedByName: a.capturedByName,
           imageUrl: a.imageUrl,
@@ -3315,7 +3339,7 @@ class _DashboardTabState extends State<DashboardTab> {
   // ── Complete task ──────────────────────────────────────────────────────────
 
   Future<String> _uploadCompletedTaskPhoto(File file) async {
-    return await ApiClient.uploadFile(file);
+    return await ApiClient.uploadFile(file, category: 'proofOfCompletion');
   }
 
   // ── Complete task ──────────────────────────────────────────────────────────
@@ -3691,6 +3715,7 @@ class _DashboardTabState extends State<DashboardTab> {
       paramId: item.paramId,
       paramLabel: item.paramLabel,
       paramValue: item.paramValue,
+      constraintValue: item.constraintValue,
       capturedBy: item.capturedBy,
       capturedByName: item.capturedByName,
       imageUrl: item.imageUrl,
@@ -4428,6 +4453,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                     paramId: item.paramId,
                                     paramLabel: item.paramLabel,
                                     paramValue: item.paramValue,
+                                    constraintValue: item.constraintValue,
                                     capturedBy: item.capturedBy,
                                     capturedByName: item.capturedByName,
                                     imageUrl: item.imageUrl,
@@ -4459,6 +4485,7 @@ class _DashboardTabState extends State<DashboardTab> {
                                     paramId: item.paramId,
                                     paramLabel: item.paramLabel,
                                     paramValue: item.paramValue,
+                                    constraintValue: item.constraintValue,
                                     capturedBy: item.capturedBy,
                                     capturedByName: item.capturedByName,
                                     imageUrl: item.imageUrl,
@@ -5117,6 +5144,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   paramId: item.paramId,
                   paramLabel: item.paramLabel,
                   paramValue: item.paramValue,
+                  constraintValue: item.constraintValue,
                   capturedBy: item.capturedBy,
                   capturedByName: item.capturedByName,
                   imageUrl: item.imageUrl,
@@ -7475,7 +7503,7 @@ class _DashboardTabState extends State<DashboardTab> {
       activeRow++;
 
       for (final a in activeAlerts) {
-        final dateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(a.timestamp).toLocal());
+        final dateStr = _fmtPdfTs(a.timestamp);
         activeSheet.appendRow([
           xl.TextCellValue(dateStr),
           xl.TextCellValue(a.tankName),
@@ -7527,8 +7555,8 @@ class _DashboardTabState extends State<DashboardTab> {
 
       for (final c in completedAlerts) {
         final a = c.alert;
-        final compDateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(c.completedAt).toLocal());
-        final alertDateStr = DateFormat('dd-MM-yyyy HH:mm:ss').format(DateTime.parse(a.timestamp).toLocal());
+        final compDateStr = _fmtPdfTs(c.completedAt);
+        final alertDateStr = _fmtPdfTs(a.timestamp);
         completedSheet.appendRow([
           xl.TextCellValue(compDateStr),
           xl.TextCellValue(alertDateStr),

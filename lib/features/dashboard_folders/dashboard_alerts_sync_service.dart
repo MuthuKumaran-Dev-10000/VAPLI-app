@@ -1,3 +1,5 @@
+// lib/features/dashboard_folders/dashboard_alerts_sync_service.dart
+
 import 'package:flutter/foundation.dart';
 import 'dashboard_alerts_display_model.dart';
 
@@ -31,21 +33,12 @@ class DashboardAlertsSyncService {
     return n;
   }
 
-  static String _cleanAlertTitle(String title, String message) {
-    var t = title.trim();
-    if (t.isEmpty) {
-      t = message.trim();
-    }
-    if (t.isEmpty) {
-      return 'General Alert';
-    }
-    return t;
-  }
-
+  /// Locally computes the folder hierarchy: Parameter Name -> Asset (Template) -> Alerts list
   static List<AlertFolderGroup> _calculateFolders(
       List<DashboardAlertDisplayItem> alerts) {
     if (alerts.isEmpty) return [];
 
+    // Group alerts by ParamLabel (Sanitized)
     final Map<String, List<DashboardAlertDisplayItem>> paramGroups = {};
     for (final a in alerts) {
       final label = _cleanParamLabel(a.paramLabel);
@@ -58,83 +51,61 @@ class DashboardAlertsSyncService {
       final paramName = entry.key;
       final paramAlerts = entry.value;
 
-      // Level 2: Group by Alert Title
-      final Map<String, List<DashboardAlertDisplayItem>> titleMap = {};
+      // Group these param alerts by Asset (tankId)
+      final Map<String, List<DashboardAlertDisplayItem>> assetGroups = {};
       for (final a in paramAlerts) {
-        final title = _cleanAlertTitle(a.alertTitle, a.message);
-        titleMap.putIfAbsent(title, () => []).add(a);
+        assetGroups.putIfAbsent(a.tankId, () => []).add(a);
       }
 
-      final List<AlertTitleGroup> titleGroups = [];
-      final Set<String> distinctTankIds = {};
+      final List<AssetFolderGroup> assets = [];
+      for (final assetEntry in assetGroups.entries) {
+        final firstAlert = assetEntry.value.first;
+        final assetAlerts = assetEntry.value;
 
-      for (final titleEntry in titleMap.entries) {
-        final titleName = titleEntry.key;
-        final titleAlerts = titleEntry.value;
-
-        // Level 3: Group by Asset (Template / Tank)
-        final Map<String, List<DashboardAlertDisplayItem>> assetGroups = {};
-        for (final a in titleAlerts) {
-          distinctTankIds.add(a.tankId);
-          assetGroups.putIfAbsent(a.tankId, () => []).add(a);
-        }
-
-        final List<AssetFolderGroup> assets = [];
-        for (final assetEntry in assetGroups.entries) {
-          final firstAlert = assetEntry.value.first;
-          final assetAlerts = assetEntry.value;
-
-          assetAlerts.sort((a, b) {
-            final rankCompare = b.rankScore.compareTo(a.rankScore);
-            if (rankCompare != 0) return rankCompare;
-            return b.timestamp.compareTo(a.timestamp);
-          });
-
-          final cleanedAssetName = _cleanAssetName(
-            firstAlert.tankName,
-            firstAlert.tankCode,
-            firstAlert.tankId,
-          );
-
-          assets.add(AssetFolderGroup(
-            tankId: assetEntry.key,
-            tankName: cleanedAssetName,
-            tankCode: firstAlert.tankCode,
-            alerts: assetAlerts,
-            alertCount: assetAlerts.length,
-          ));
-        }
-
-        assets.sort((a, b) {
-          final aMaxRank = _getGroupMaxRank(a.alerts);
-          final bMaxRank = _getGroupMaxRank(b.alerts);
-          final rankCompare = bMaxRank.compareTo(aMaxRank);
+        // Sort alerts within the asset folder by rankScore (descending) and then time
+        assetAlerts.sort((a, b) {
+          final rankCompare = b.rankScore.compareTo(a.rankScore);
           if (rankCompare != 0) return rankCompare;
-
-          final aLatest = _getLatestTimestamp(a.alerts);
-          final bLatest = _getLatestTimestamp(b.alerts);
-          return bLatest.compareTo(aLatest);
+          return b.timestamp.compareTo(a.timestamp); // Newest first
         });
 
-        titleGroups.add(AlertTitleGroup(
-          alertTitle: titleName,
-          assets: assets,
-          totalAlerts: titleAlerts.length,
+        final cleanedAssetName = _cleanAssetName(
+          firstAlert.tankName,
+          firstAlert.tankCode,
+          firstAlert.tankId,
+        );
+
+        assets.add(AssetFolderGroup(
+          tankId: assetEntry.key,
+          tankName: cleanedAssetName,
+          tankCode: firstAlert.tankCode,
+          alerts: assetAlerts,
+          alertCount: assetAlerts.length,
         ));
       }
 
-      titleGroups.sort((a, b) => b.totalAlerts.compareTo(a.totalAlerts));
-      final allParamAssets = titleGroups.expand((tg) => tg.assets).toList();
+      // Sort assets by max rankScore and then latest timestamp
+      assets.sort((a, b) {
+        final aMaxRank = _getGroupMaxRank(a.alerts);
+        final bMaxRank = _getGroupMaxRank(b.alerts);
+        final rankCompare = bMaxRank.compareTo(aMaxRank);
+        if (rankCompare != 0) return rankCompare;
+
+        final aLatest = _getLatestTimestamp(a.alerts);
+        final bLatest = _getLatestTimestamp(b.alerts);
+        return bLatest.compareTo(aLatest);
+      });
 
       folderGroups.add(AlertFolderGroup(
         paramLabel: paramName,
-        titleGroups: titleGroups,
-        assets: allParamAssets,
+        titleGroups: const [],
+        assets: assets,
         totalAlerts: paramAlerts.length,
-        totalAssets: distinctTankIds.length,
+        totalAssets: assets.length,
       ));
     }
 
+    // Sort top-level parameter folders by max rankScore and latest timestamp
     folderGroups.sort((a, b) {
       final aAllAlerts = a.assets.expand((asset) => asset.alerts).toList();
       final bAllAlerts = b.assets.expand((asset) => asset.alerts).toList();

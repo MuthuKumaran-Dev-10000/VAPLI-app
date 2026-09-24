@@ -23,6 +23,8 @@ class _AlertModel {
   final String readingId; // 🔖 Added for lookup in reports
   final String ifThen; // 🔖 Added for IF-THEN detail
 
+  final String constraintValue;
+
   _AlertModel({
     required this.id,
     required this.alertTitle,
@@ -35,6 +37,7 @@ class _AlertModel {
     required this.paramId,
     required this.paramLabel,
     required this.paramValue,
+    this.constraintValue = '',
     required this.capturedBy,
     required this.capturedByName,
     required this.imageUrl,
@@ -73,18 +76,32 @@ class _AlertModel {
             ? [m['completed_photo_url'].toString()]
             : []);
 
+    String parseFirstNonEmpty(List<String> keys, {String fallback = ''}) {
+      for (final k in keys) {
+        final val = m[k]?.toString().trim();
+        if (val != null && val.isNotEmpty && val.toLowerCase() != 'general' && val != '.') {
+          return val;
+        }
+      }
+      return fallback;
+    }
+
+    final parsedParamLabel = parseFirstNonEmpty(['param_label', 'label', 'constraint_label', 'param_name']);
+    final parsedAlertTitle = parseFirstNonEmpty(['alert_title', 'constraint_label', 'label', 'message'], fallback: 'Alert');
+
     return _AlertModel(
       id: m['id']?.toString() ?? '',
-      alertTitle: (m['alert_title'] ?? m['constraint_label'])?.toString() ?? '',
+      alertTitle: parsedAlertTitle,
       message: m['message']?.toString() ?? '',
       severity: (m['severity'] ?? m['constraint_severity'])?.toString() ?? 'warning',
-      op: (m['op'] ?? m['constraint_op'])?.toString() ?? 'null',
+      op: (m['op'] ?? m['constraint_op'])?.toString() ?? '',
       tankId: m['tank_id']?.toString() ?? '',
       tankName: m['tank_name']?.toString() ?? '',
       tankCode: m['tank_code']?.toString() ?? '',
       paramId: (m['param_id'] ?? m['constraint_id'])?.toString() ?? '',
-      paramLabel: (m['param_label'] ?? m['constraint_label'])?.toString() ?? '',
-      paramValue: (m['param_value'] ?? m['violated_value'])?.toString() ?? '',
+      paramLabel: parsedParamLabel.isNotEmpty ? parsedParamLabel : 'System Alert',
+      paramValue: (m['param_value'] ?? m['violated_value'] ?? m['value_json'] ?? m['value'] ?? m['val'])?.toString() ?? '',
+      constraintValue: (m['constraint_value'] ?? m['compare_value'] ?? m['threshold_value'] ?? m['param_value'] ?? m['value_json'])?.toString() ?? '',
       capturedBy: m['captured_by']?.toString() ?? '',
       capturedByName: m['captured_by_name']?.toString() ?? '',
       imageUrl: m['image_url']?.toString() ?? '',
@@ -101,3 +118,4 @@ class _AlertModel {
     );
   }
 }
+
