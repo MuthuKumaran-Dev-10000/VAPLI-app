@@ -52,6 +52,7 @@ class UserModel {
         'email': email,
         'privileges': privileges,
         'client_ids': clientIds,
+        'client_id': clientIds.isNotEmpty ? clientIds.first : null,
         'failed_login_attempts': failedLoginAttempts,
         'locked_until': lockedUntil,
         'is_active': isActive,
@@ -69,10 +70,19 @@ class UserModel {
         email: m['email']?.toString(),
         privileges: ((m['privileges'] as Map?) ?? (m['privileges_json'] as Map?) ?? const {})
             .map((k, v) => MapEntry(k.toString(), _parseBool(v, defaultValue: false))),
-        clientIds: ((m['client_ids'] as List?) ?? (m['client_ids_json'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .where((e) => e.trim().isNotEmpty)
-            .toList(),
+        clientIds: (() {
+          final list = <String>[];
+          if (m['client_ids'] is List) {
+            list.addAll((m['client_ids'] as List).map((e) => e.toString()));
+          }
+          if (m['client_ids_json'] is List) {
+            list.addAll((m['client_ids_json'] as List).map((e) => e.toString()));
+          }
+          if (m['client_id'] != null && m['client_id'].toString().trim().isNotEmpty) {
+            list.add(m['client_id'].toString().trim());
+          }
+          return list.where((e) => e.trim().isNotEmpty).toSet().toList();
+        })(),
         failedLoginAttempts: (m['failed_login_attempts'] is num)
             ? (m['failed_login_attempts'] as num).toInt()
             : int.tryParse(m['failed_login_attempts']?.toString() ?? '0') ?? 0,

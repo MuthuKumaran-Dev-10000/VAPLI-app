@@ -287,20 +287,27 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _hydrateSelectedClient() async {
     final active = await ClientContextService.getActiveClient();
     if (!mounted) return;
-    if (active == null || active.id.isEmpty) return;
-    setState(() {
-      _selectedClientId = active.id;
-    });
+    if (active != null && active.id.isNotEmpty) {
+      setState(() {
+        _selectedClientId = active.id;
+      });
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
   // Load users only
   // Tanks are handled completely by TankBrowserScreen
   // ───────────────────────────────────────────────────────────────────────────
-  void _load() {
+  void _load() async {
     debugPrint('[Dashboard] Loading users...');
     _usersSub?.cancel();
     _clientsSub?.cancel();
+
+    final active = await ClientContextService.getActiveClient();
+    if (mounted && active != null && active.id.isNotEmpty) {
+      _selectedClientId = active.id;
+    }
+    _selectedClientId ??= widget.activeClient?.id;
 
     AuthRepository().getAllUsers().then((userModels) {
       if (!mounted) return;
@@ -313,7 +320,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       if (!mounted) return;
       setState(() {
         _clients = items;
-        _selectedClientId ??= widget.activeClient?.id;
         _selectedClientId ??= items.isNotEmpty ? items.first.id : null;
       });
     });
@@ -338,16 +344,19 @@ class _AdminDashboardState extends State<AdminDashboard>
     var users = _users;
     if (_selectedClientId != null && _selectedClientId!.trim().isNotEmpty) {
       users = users.where((u) {
-        final role = (u['role']?.toString() ?? '').toLowerCase();
-        if (role == 'super admin' || role == 'superadmin') return true;
+        final username = (u['username']?.toString() ?? '').trim().toLowerCase();
+        // Global root admin is always visible
+        if (username == 'admin' || username == 'root-admin') return true;
+
         final ids = ((u['client_ids'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .toList();
-        final singleId = u['client_id']?.toString();
-        if (singleId != null && singleId.trim().isNotEmpty) {
-          ids.add(singleId.trim());
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toSet();
+        final singleId = u['client_id']?.toString().trim();
+        if (singleId != null && singleId.isNotEmpty) {
+          ids.add(singleId);
         }
-        return ids.contains(_selectedClientId);
+        return ids.contains(_selectedClientId!.trim());
       }).toList();
     }
     users = users.where((u) {
@@ -2301,12 +2310,18 @@ class _AdminDashboardState extends State<AdminDashboard>
                 });
 
                 try {
+                  final activeClient = await ClientContextService.getActiveClient();
+                  final targetClientId = _selectedClientId ?? activeClient?.id ?? widget.activeClient?.id;
+                  final targetClientIds = (targetClientId != null && targetClientId.trim().isNotEmpty)
+                      ? [targetClientId.trim()]
+                      : <String>[];
+
                   await AuthRepository().createUser(
                     username: username,
                     fullName: fullName,
                     password: pass,
                     role: role,
-                    clientIds: _selectedClientId != null ? [_selectedClientId!] : [],
+                    clientIds: targetClientIds,
                   );
                   await _audit(
                     operation: 'create_user',
@@ -2315,7 +2330,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     details: {
                       'username': username,
                       'role': role,
-                      'client_ids': _selectedClientId != null ? [_selectedClientId!] : [],
+                      'client_ids': targetClientIds,
                     },
                   );
                   await _reloadAll();
