@@ -20,6 +20,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
   final Map<String, TextEditingController> _textCtrl = {};
   final Map<String, TextEditingController> _dualLeft = {};
   final Map<String, TextEditingController> _dualRight = {};
+  final Map<String, FocusNode> _focusNodes = {};
+  final Map<String, FocusNode> _dualLeftFocus = {};
+  final Map<String, FocusNode> _dualRightFocus = {};
   final Map<String, String?> _dropdownVal = {};
   final Map<String, double> _sliderVal = {};
 
@@ -158,6 +161,9 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     _textCtrl.values.forEach((c) => c.dispose());
     _dualLeft.values.forEach((c) => c.dispose());
     _dualRight.values.forEach((c) => c.dispose());
+    _focusNodes.values.forEach((f) => f.dispose());
+    _dualLeftFocus.values.forEach((f) => f.dispose());
+    _dualRightFocus.values.forEach((f) => f.dispose());
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -1431,7 +1437,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
 
   // ── Called on every value change ───────────────────────────────────────
 
-  Future<void> _onValueChanged(String id) async {
+  Future<void> _onValueChanged(String id, {bool isFocusLoss = false}) async {
     final p = _getPropById(id);
     if (p.isEmpty) return;
 
@@ -1453,17 +1459,26 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
 
     setState(() => _violations[id] = newViolations);
 
-    // Newly fired constraints
-    for (final v in newViolations) {
-      final constraintsSet = _alreadyFiredConstraints.putIfAbsent(id, () => <String>{});
-      final alreadyFired = constraintsSet.contains(v.constraintId);
+    // Determine if user is currently typing in a text field
+    final isTextType = type == 'number' || type == 'text' || type == 'multiline' || type == 'dual_text';
+    final hasActiveFocus = type == 'dual_text'
+        ? ((_dualLeftFocus[id]?.hasFocus == true) || (_dualRightFocus[id]?.hasFocus == true))
+        : (_focusNodes[id]?.hasFocus == true);
+    final isCurrentlyEditing = isTextType && hasActiveFocus && !isFocusLoss;
 
-      if (!alreadyFired) {
-        constraintsSet.add(v.constraintId);
-        _handleConstraintFired(paramId: id, param: p, value: val, violation: v);
-      } else {
-        _updateLiveAlert(
-            paramId: id, constraintId: v.constraintId, newValue: val);
+    // Newly fired constraints — only trigger intrusive bottom sheet popup and sound if user is NOT actively typing, OR if focus was lost / saving
+    if (!isCurrentlyEditing) {
+      for (final v in newViolations) {
+        final constraintsSet = _alreadyFiredConstraints.putIfAbsent(id, () => <String>{});
+        final alreadyFired = constraintsSet.contains(v.constraintId);
+
+        if (!alreadyFired) {
+          constraintsSet.add(v.constraintId);
+          _handleConstraintFired(paramId: id, param: p, value: val, violation: v);
+        } else {
+          _updateLiveAlert(
+              paramId: id, constraintId: v.constraintId, newValue: val);
+        }
       }
     }
 
@@ -1661,6 +1676,13 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
   // ── Save ───────────────────────────────────────────────────────────────
 
   Future<void> _save() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    for (final p in _allActiveProps()) {
+      final pid = p['id'] as String?;
+      if (pid != null) {
+        await _onValueChanged(pid, isFocusLoss: true);
+      }
+    }
     final propErr = _requiredError();
     if (propErr != null) {
       _snack(propErr, _kDanger);
@@ -2850,11 +2872,14 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
         }
         return TextFormField(
           controller: _textCtrl[id],
+          focusNode: _focusNodes[id],
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           style: GoogleFonts.spaceGrotesk(color: _kText, fontSize: 15),
           cursorColor: _kCopper,
           decoration: _dec(hint, hasViolation: hasViolation),
           onChanged: (_) => _onValueChanged(id),
+          onEditingComplete: () => _onValueChanged(id, isFocusLoss: true),
+          onFieldSubmitted: (_) => _onValueChanged(id, isFocusLoss: true),
         );
 
       case 'text':
@@ -2869,10 +2894,13 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
         }
         return TextFormField(
           controller: _textCtrl[id],
+          focusNode: _focusNodes[id],
           style: GoogleFonts.dmSans(color: _kText, fontSize: 14),
           cursorColor: _kCopper,
           decoration: _dec(hint, hasViolation: hasViolation),
           onChanged: (_) => _onValueChanged(id),
+          onEditingComplete: () => _onValueChanged(id, isFocusLoss: true),
+          onFieldSubmitted: (_) => _onValueChanged(id, isFocusLoss: true),
         );
 
       case 'multiline':
@@ -2888,11 +2916,14 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
         }
         return TextFormField(
           controller: _textCtrl[id],
+          focusNode: _focusNodes[id],
           maxLines: 4,
           style: GoogleFonts.dmSans(color: _kText, fontSize: 14),
           cursorColor: _kCopper,
           decoration: _dec(hint, hasViolation: hasViolation),
           onChanged: (_) => _onValueChanged(id),
+          onEditingComplete: () => _onValueChanged(id, isFocusLoss: true),
+          onFieldSubmitted: (_) => _onValueChanged(id, isFocusLoss: true),
         );
 
       case 'dropdown':
@@ -2923,7 +2954,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
               onChanged: (v) {
                 setState(() => _dropdownVal[id] = v);
                 WidgetsBinding.instance
-                    .addPostFrameCallback((_) => _onValueChanged(id));
+                    .addPostFrameCallback((_) => _onValueChanged(id, isFocusLoss: true));
               },
             ),
           ),
@@ -2959,20 +2990,26 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _dualLeft[id],
+                  focusNode: _dualLeftFocus[id],
                   style: GoogleFonts.dmSans(color: _kText, fontSize: 14),
                   cursorColor: _kCopper,
                   decoration: _dec(lbl, hasViolation: hasViolation),
                   onChanged: (_) => _onValueChanged(id),
+                  onEditingComplete: () => _onValueChanged(id, isFocusLoss: true),
+                  onFieldSubmitted: (_) => _onValueChanged(id, isFocusLoss: true),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: TextFormField(
                   controller: _dualRight[id],
+                  focusNode: _dualRightFocus[id],
                   style: GoogleFonts.dmSans(color: _kText, fontSize: 14),
                   cursorColor: _kCopper,
                   decoration: _dec(rbl, hasViolation: hasViolation),
                   onChanged: (_) => _onValueChanged(id),
+                  onEditingComplete: () => _onValueChanged(id, isFocusLoss: true),
+                  onFieldSubmitted: (_) => _onValueChanged(id, isFocusLoss: true),
                 ),
               ),
             ]),
@@ -3065,8 +3102,15 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
       case 'text':
       case 'multiline':
         final ctrl = TextEditingController();
+        final fn = FocusNode();
+        fn.addListener(() {
+          if (!fn.hasFocus) {
+            _onValueChanged(id, isFocusLoss: true);
+          }
+        });
         ctrl.addListener(() => _onValueChanged(id));
         _textCtrl[id] = ctrl;
+        _focusNodes[id] = fn;
         break;
       case 'dropdown':
         _dropdownVal[id] = null;
@@ -3077,10 +3121,20 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
       case 'dual_text':
         final l = TextEditingController();
         final r = TextEditingController();
+        final fnL = FocusNode();
+        final fnR = FocusNode();
+        fnL.addListener(() {
+          if (!fnL.hasFocus) _onValueChanged(id, isFocusLoss: true);
+        });
+        fnR.addListener(() {
+          if (!fnR.hasFocus) _onValueChanged(id, isFocusLoss: true);
+        });
         l.addListener(() => _onValueChanged(id));
         r.addListener(() => _onValueChanged(id));
         _dualLeft[id] = l;
         _dualRight[id] = r;
+        _dualLeftFocus[id] = fnL;
+        _dualRightFocus[id] = fnR;
         break;
     }
 

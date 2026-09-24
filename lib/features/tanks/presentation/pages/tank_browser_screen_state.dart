@@ -329,30 +329,23 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
                 setDlg(() => error = 'Name is required');
                 return;
               }
-              setDlg(() {
-                saving = true;
-                error = null;
-              });
+              final desc = descCtrl.text.trim();
+              final parentId = _currentFolder?.id;
+              if (ctx.mounted) Navigator.pop(ctx);
               try {
                 await _treeRepo.createFolder(
                   name: name,
-                  description: descCtrl.text.trim().isEmpty
-                      ? null
-                      : descCtrl.text.trim(),
+                  description: desc.isEmpty ? null : desc,
                   zone: widget.rootLabel,
-                  parentId: _currentFolder?.id,
+                  parentId: parentId,
                 );
                 await widget.onAudit?.call('create_group', {
                   'name': name,
-                  'description': descCtrl.text.trim(),
-                  'parent_id': _currentFolder?.id ?? '',
+                  'description': desc,
+                  'parent_id': parentId ?? '',
                 });
-                if (ctx.mounted) Navigator.pop(ctx);
               } catch (e) {
-                setDlg(() {
-                  saving = false;
-                  error = e.toString();
-                });
+                if (mounted) _snack('Failed to create group: $e', _kDanger);
               }
             },
             confirmLabel: saving ? null : 'Create',
@@ -524,31 +517,23 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
                 setDlg(() => error = 'Name is required');
                 return;
               }
-              setDlg(() {
-                saving = true;
-                error = null;
-              });
+              final desc = descCtrl.text.trim();
+              if (ctx.mounted) Navigator.pop(ctx);
               try {
                 await _treeRepo.updateFolder(
                   id: node.id,
                   name: name,
-                  description: descCtrl.text.trim().isEmpty
-                      ? null
-                      : descCtrl.text.trim(),
+                  description: desc.isEmpty ? null : desc,
                   zone: widget.rootLabel,
                 );
                 await widget.onAudit?.call('update_group', {
                   'node_id': node.id,
                   'old_name': node.name,
                   'new_name': name,
-                  'description': descCtrl.text.trim(),
+                  'description': desc,
                 });
-                if (ctx.mounted) Navigator.pop(ctx);
               } catch (e) {
-                setDlg(() {
-                  saving = false;
-                  error = e.toString();
-                });
+                if (mounted) _snack('Failed to update group: $e', _kDanger);
               }
             },
             confirmLabel: saving ? null : 'Save',

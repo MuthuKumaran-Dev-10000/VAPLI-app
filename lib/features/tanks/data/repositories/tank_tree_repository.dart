@@ -64,12 +64,18 @@ class TankTreeRepository {
     final response = await ApiClient.get('/clients/$clientId/tank-tree');
     if (response is Map && response['success'] == true && response['data'] != null) {
       final list = response['data'] as List;
-      return list
+      final nodes = list
           .map((item) => TankNode.fromMap(
                 item['id'].toString(),
                 Map<dynamic, dynamic>.from(item),
               ))
           .toList();
+      nodes.sort((a, b) {
+        final cmp = a.order.compareTo(b.order);
+        if (cmp != 0) return cmp;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return nodes;
     }
     return [];
   }
@@ -91,6 +97,12 @@ class TankTreeRepository {
   }) async {
     final clientId = await _getClientId();
     final id = HashUtil.generateId();
+    final allNodes = await fetchAll();
+    final siblings = allNodes.where((n) => n.parentId == parentId).toList();
+    final nextOrder = siblings.isEmpty
+        ? 1
+        : (siblings.map((s) => s.order).fold<int>(0, (prev, elem) => elem > prev ? elem : prev) + 1);
+
     final nodeMap = {
       'id': id,
       'type': 'folder',
@@ -98,7 +110,8 @@ class TankTreeRepository {
       'description': description,
       'zone': zone,
       'parent_id': parentId,
-      'order': 0,
+      'order': nextOrder,
+      'sort_order': nextOrder,
     };
     await ApiClient.post('/clients/$clientId/tank-tree', nodeMap);
     notifySubscribers();
@@ -113,6 +126,12 @@ class TankTreeRepository {
   }) async {
     final clientId = await _getClientId();
     final id = HashUtil.generateId();
+    final allNodes = await fetchAll();
+    final siblings = allNodes.where((n) => n.parentId == parentId).toList();
+    final nextOrder = siblings.isEmpty
+        ? 1
+        : (siblings.map((s) => s.order).fold<int>(0, (prev, elem) => elem > prev ? elem : prev) + 1);
+
     final nodeMap = {
       'id': id,
       'type': 'leaf',
@@ -120,7 +139,8 @@ class TankTreeRepository {
       'tank_id': tankId,
       'zone': zone,
       'parent_id': parentId,
-      'order': 0,
+      'order': nextOrder,
+      'sort_order': nextOrder,
     };
     await ApiClient.post('/clients/$clientId/tank-tree', nodeMap);
     notifySubscribers();
@@ -180,7 +200,8 @@ class TankTreeRepository {
     for (int i = 0; i < nodeIds.length; i++) {
       await ApiClient.post('/clients/$clientId/tank-tree', {
         'id': nodeIds[i],
-        'sort_order': i,
+        'sort_order': i + 1,
+        'order': i + 1,
       });
     }
     notifySubscribers();
