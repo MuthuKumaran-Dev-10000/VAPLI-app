@@ -65,6 +65,10 @@ import 'package:lubrication_indicator/features/dashboard_folders/alerts_screen.d
 import 'package:image_picker/image_picker.dart';
 import 'package:lubrication_indicator/features/readings/presentation/pages/image_marker_screen.dart';
 import 'package:lubrication_indicator/core/services/env_config.dart';
+import 'package:lubrication_indicator/core/services/completion_proof_pin_service.dart';
+import 'package:lubrication_indicator/core/utils/media_url_resolver.dart';
+import 'package:lubrication_indicator/features/dashboard/presentation/widgets/completion_evidence_widgets.dart';
+import 'package:lubrication_indicator/features/dashboard/presentation/widgets/completion_proof_pin_dialog.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'dart:convert';

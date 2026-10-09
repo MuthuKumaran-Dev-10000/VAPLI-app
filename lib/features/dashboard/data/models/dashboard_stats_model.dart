@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 // lib/features/dashboard/data/models/dashboard_stats_model.dart
 // ══════════════════════════════════════════════════════════════════════════════
 // Stores per-tank aggregated stats in Firebase RTDB at:
@@ -60,30 +62,57 @@ class DashboardStatsModel {
         },
       };
 
+  static Map<String, dynamic> _parseJsonMap(dynamic raw) {
+    if (raw == null) return {};
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return {};
+  }
+
+  static int _parseCount(dynamic raw) {
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    return 0;
+  }
+
+  static String? _parseCapturedAt(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is String) return raw;
+    return raw.toString();
+  }
+
   factory DashboardStatsModel.fromMap(String tankId, Map<dynamic, dynamic> m) {
-    final rawParams = m['param_stats'];
+    final rawParams =
+        m['param_stats'] ?? m['param_stats_json'];
     final Map<String, ParamStat> stats = {};
-    if (rawParams is Map) {
-      for (final e in rawParams.entries) {
-        final key = e.key.toString();
-        final val = e.value;
-        if (val is Map) {
-          stats[key] = ParamStat.fromMap(Map<String, dynamic>.from(val));
-        }
+    final paramsMap = _parseJsonMap(rawParams);
+    for (final e in paramsMap.entries) {
+      final key = e.key.toString();
+      final val = e.value;
+      if (val is Map) {
+        stats[key] = ParamStat.fromMap(Map<String, dynamic>.from(val));
       }
     }
 
-    Map<String, dynamic> lastReading = {};
-    if (m['last_reading'] is Map) {
-      lastReading = Map<String, dynamic>.from(m['last_reading'] as Map);
-    }
+    final lastReading = _parseJsonMap(
+      m['last_reading'] ?? m['last_reading_json'],
+    );
+
+    final capturedBy = m['last_captured_by_name'] ??
+        m['last_captured_by'];
 
     return DashboardStatsModel(
       tankId: tankId,
-      count: (m['count'] ?? 0) as int,
-      lastCapturedAt: m['last_captured_at'] as String?,
-      lastCapturedBy: m['last_captured_by'] as String?,
-      lastDuplicateReason: m['last_duplicate_reason'] as String?,
+      count: _parseCount(m['count'] ?? m['count_value']),
+      lastCapturedAt: _parseCapturedAt(m['last_captured_at']),
+      lastCapturedBy: capturedBy?.toString(),
+      lastDuplicateReason: m['last_duplicate_reason']?.toString(),
       lastReading: lastReading,
       paramStats: stats,
     );

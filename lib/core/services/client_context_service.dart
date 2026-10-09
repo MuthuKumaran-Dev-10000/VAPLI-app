@@ -31,6 +31,18 @@ class ClientContextService {
     return ClientModel.fromMap(Map<String, dynamic>.from(jsonDecode(raw) as Map));
   }
 
+  /// Active tenant client id for API calls; fails fast if none is selected.
+  static Future<String> requireActiveClientId() async {
+    final client = await getActiveClient();
+    final id = client?.id.trim();
+    if (id == null || id.isEmpty) {
+      throw StateError(
+        'No active client selected. Choose a client before continuing.',
+      );
+    }
+    return id;
+  }
+
   static Future<void> clearActiveClient() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);

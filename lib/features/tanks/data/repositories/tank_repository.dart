@@ -24,8 +24,7 @@ class TankRepository {
   }
 
   Future<String> _getClientId() async {
-    final client = await ClientContextService.getActiveClient();
-    return client?.id ?? 'dummy_client_id';
+    return ClientContextService.requireActiveClientId();
   }
 
   Future<List<TankModel>> getAllTanks() async {

@@ -99,8 +99,7 @@ class _LeafCardContentState extends State<_LeafCardContent> {
               child: _PrintableQr(node: widget.node, tank: widget.tank)),
           pixelRatio: 3.0,
         );
-        final client = await ClientContextService.getActiveClient();
-        final clientId = client?.id ?? 'dummy_client_id';
+        final clientId = await ClientContextService.requireActiveClientId();
         final qrUrl = await ApiClient.uploadBytes(bytes, filename: 'qr_${widget.node.id}.png');
         final tid = widget.node.tankId;
         if (tid != null) {

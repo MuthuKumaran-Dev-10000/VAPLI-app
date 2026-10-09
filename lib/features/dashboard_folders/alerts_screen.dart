@@ -7,6 +7,8 @@ import 'package:lubrication_indicator/core/services/database_mode_service.dart';
 import 'package:lubrication_indicator/features/alerts/data/repositories/alert_reposiotry.dart';
 import 'dashboard_alerts_display_model.dart';
 import 'dashboard_alerts_sync_service.dart';
+import 'completed_alerts_loader.dart';
+import 'completed_alert_leaf_card.dart';
 import 'folder_alerts_view.dart';
 
 const _kSuccess = Color(0xFF22C55E);
@@ -223,15 +225,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   Future<void> _fetchCompletedAlerts() async {
     try {
-      final allAlerts = await AlertRepository().getAll();
+      final items = await CompletedAlertsLoader.load();
       if (!mounted) return;
-      final items = <DashboardAlertDisplayItem>[];
-      for (final a in allAlerts) {
-        if (a.resolved || a.status.toLowerCase() == 'completed') {
-          items.add(DashboardAlertDisplayItem.fromMap(a.toMap()));
-        }
-      }
-      items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       setState(() {
         _allCompletedAlerts = items;
         _syncingCompleted = false;
@@ -703,40 +698,6 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   Widget _defaultCompletedLeafCard(DashboardAlertDisplayItem item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _kCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kSuccess.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.check_circle_outline, color: _kSuccess, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  item.alertTitle,
-                  style: GoogleFonts.dmSans(
-                    color: _kText,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${item.tankName} · ${item.paramLabel}',
-            style: GoogleFonts.dmSans(color: _kSub, fontSize: 11),
-          ),
-        ],
-      ),
-    );
+    return CompletedAlertLeafCard(item: item);
   }
 }

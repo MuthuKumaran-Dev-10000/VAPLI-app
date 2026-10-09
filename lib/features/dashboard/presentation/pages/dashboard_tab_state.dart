@@ -130,6 +130,7 @@ class _DashboardTabState extends State<DashboardTab> {
     _subscribeAlerts();
     _subscribeCompleted();
     _subscribeSettings();
+    CompletionProofPinService.refresh();
   }
 
   Future<Uint8List?> _capture(GlobalKey key) async {
@@ -469,6 +470,42 @@ class _DashboardTabState extends State<DashboardTab> {
       }
     }
     return null;
+  }
+
+  dynamic _inspectionValueForParam({
+    required Map<String, dynamic> readingValues,
+    required TankModel tank,
+    required String paramLabel,
+    DashboardStatsModel? stats,
+  }) {
+    if (readingValues.containsKey(paramLabel)) {
+      return readingValues[paramLabel];
+    }
+    final prop = _getTankParamProp(tank, paramLabel);
+    final id = prop?['id']?.toString();
+    if (id != null && readingValues.containsKey(id)) {
+      return readingValues[id];
+    }
+    final paramStat = stats?.paramStats[paramLabel];
+    if (paramStat != null) {
+      if (paramStat.isNumeric && paramStat.avg != null) return paramStat.avg;
+      if (paramStat.lastValue != null) return paramStat.lastValue;
+    }
+    return null;
+  }
+
+  bool _tankHasOpenAlert(String tankId, List<_AlertModel> openAlerts) {
+    return openAlerts.any((a) => a.tankId == tankId);
+  }
+
+  String? _rowAlertSeverityForInspectionReport({
+    required String tankId,
+    required List<_AlertModel> openAlerts,
+    required bool capturedToday,
+  }) {
+    if (!capturedToday) return null;
+    if (!_tankHasOpenAlert(tankId, openAlerts)) return null;
+    return _getTankActiveAlertSeverity(tankId, openAlerts);
   }
 
   bool _shouldAbbreviateTitle(String title, bool compress, bool abbrTitlesEnabled) {
@@ -1149,9 +1186,12 @@ class _DashboardTabState extends State<DashboardTab> {
     setState(() => _dashboardPdfExporting = true);
     try {
       final statsRepo = DashboardStatsRepository();
-      final statsByTank = <String, DashboardStatsModel>{};
+      final statsByTank = await statsRepo.getAllStatsByTank();
       for (final tank in _tanks) {
-        statsByTank[tank.id] = await statsRepo.getStats(tank.id);
+        statsByTank.putIfAbsent(
+          tank.id,
+          () => DashboardStatsModel.empty(tank.id),
+        );
       }
 
       final formatSettings = await _fetchReportFormatConfigs();
@@ -1875,8 +1915,13 @@ class _DashboardTabState extends State<DashboardTab> {
 
       final sortedFolderIds = folderGroups.keys.toList()
         ..sort((a, b) {
-          final nameA = (a == 'root') ? 'General' : (nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null)?.name ?? 'General');
-          final nameB = (b == 'root') ? 'General' : (nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null)?.name ?? 'General');
+          final nodeA = nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null);
+          final nodeB = nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null);
+          final orderA = (a == 'root') ? -1 : (nodeA?.order ?? 999999);
+          final orderB = (b == 'root') ? -1 : (nodeB?.order ?? 999999);
+          if (orderA != orderB) return orderA.compareTo(orderB);
+          final nameA = (a == 'root') ? 'General' : (nodeA?.name ?? 'General');
+          final nameB = (b == 'root') ? 'General' : (nodeB?.name ?? 'General');
           return nameA.compareTo(nameB);
         });
 
@@ -2091,8 +2136,12 @@ class _DashboardTabState extends State<DashboardTab> {
       if (_reportRangeMode == 'daily') {
         Map<String, DashboardStatsModel> statsByTank = {};
         if (isTodaySelected) {
+          statsByTank = await DashboardStatsRepository().getAllStatsByTank();
           for (final tank in _tanks) {
-            statsByTank[tank.id] = await DashboardStatsRepository().getStats(tank.id);
+            statsByTank.putIfAbsent(
+              tank.id,
+              () => DashboardStatsModel.empty(tank.id),
+            );
           }
         }
 
@@ -2503,8 +2552,13 @@ class _DashboardTabState extends State<DashboardTab> {
 
       final sortedFolderIds = folderGroups.keys.toList()
         ..sort((a, b) {
-          final nameA = (a == 'root') ? 'General' : (nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null)?.name ?? 'General');
-          final nameB = (b == 'root') ? 'General' : (nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null)?.name ?? 'General');
+          final nodeA = nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null);
+          final nodeB = nodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null);
+          final orderA = (a == 'root') ? -1 : (nodeA?.order ?? 999999);
+          final orderB = (b == 'root') ? -1 : (nodeB?.order ?? 999999);
+          if (orderA != orderB) return orderA.compareTo(orderB);
+          final nameA = (a == 'root') ? 'General' : (nodeA?.name ?? 'General');
+          final nameB = (b == 'root') ? 'General' : (nodeB?.name ?? 'General');
           return nameA.compareTo(nameB);
         });
 
@@ -2520,8 +2574,12 @@ class _DashboardTabState extends State<DashboardTab> {
       final isTodaySelected = _pdfRange == _DashboardPdfRange.current;
       Map<String, DashboardStatsModel> statsByTank = {};
       if (isTodaySelected) {
+        statsByTank = await DashboardStatsRepository().getAllStatsByTank();
         for (final tank in _tanks) {
-          statsByTank[tank.id] = await DashboardStatsRepository().getStats(tank.id);
+          statsByTank.putIfAbsent(
+            tank.id,
+            () => DashboardStatsModel.empty(tank.id),
+          );
         }
       }
 
@@ -3145,8 +3203,7 @@ class _DashboardTabState extends State<DashboardTab> {
   void _subscribeAlerts() async {
     _alertSub?.cancel();
     try {
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       final response = await ApiClient.get('/clients/$clientId/alerts');
       if (response is Map && response['success'] == true && response['data'] != null) {
         final list = (response['data'] as List)
@@ -3203,11 +3260,25 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
+  List<String> _parseCompletedPhotoUrls(Map<dynamic, dynamic> m) {
+    dynamic raw = m['completed_photo_urls'] ?? m['photo_urls_json'];
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        raw = decoded;
+      } catch (_) {}
+    }
+    if (raw is List) {
+      return MediaUrlResolver.resolveList(raw.map((e) => e.toString()));
+    }
+    final single = m['completed_photo_url']?.toString() ?? '';
+    return single.isNotEmpty ? [MediaUrlResolver.resolve(single)] : [];
+  }
+
   void _subscribeCompleted() async {
     _completedSub?.cancel();
     try {
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       final response = await ApiClient.get('/clients/$clientId/completed-tasks');
       if (response is Map && response['success'] == true && response['data'] != null) {
         final list = <_CompletedTask>[];
@@ -3215,12 +3286,14 @@ class _DashboardTabState extends State<DashboardTab> {
           final m = Map<dynamic, dynamic>.from(v as Map);
           final alertMap = m['alert'];
           if (alertMap == null) continue;
+          final photoUrls = _parseCompletedPhotoUrls(m);
           list.add(_CompletedTask(
             alertId: m['alert_id']?.toString() ?? '',
             completedAt: m['completed_at']?.toString() ?? '',
             completedBy: m['completed_by']?.toString() ?? '',
             completedDescription: m['completed_description']?.toString() ?? '',
-            completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
+            completedPhotoUrl: photoUrls.isNotEmpty ? photoUrls.first : '',
+            completedPhotoUrls: photoUrls,
             alert: _AlertModel.fromMap(Map<dynamic, dynamic>.from(alertMap as Map)),
           ));
         }
@@ -3266,6 +3339,8 @@ class _DashboardTabState extends State<DashboardTab> {
           ifThen: a.ifThen,
           completedDescription: c.completedDescription,
           completedPhotoUrl: c.completedPhotoUrl,
+          completedPhotoUrls: c.completedPhotoUrls,
+          completedBy: c.completedBy,
         );
       }).toList();
 
@@ -3318,8 +3393,7 @@ class _DashboardTabState extends State<DashboardTab> {
 
       // avg exceeded → synthesise alert
       final alertId = 'avg_${tank.id}_${p['id']}';
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       final alert = {
         'id': alertId,
         'alert_title': 'Avg Exceeded Expected',
@@ -3359,8 +3433,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final taskId = 'task_${alert.id}';
     final now = DateTime.now().toIso8601String();
     final firstUrl = photoUrls.isNotEmpty ? photoUrls.first : '';
-    final client = await ClientContextService.getActiveClient();
-    final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
 
     await ApiClient.post('/clients/$clientId/completed-tasks', {
       'id': taskId,
@@ -3413,6 +3486,7 @@ class _DashboardTabState extends State<DashboardTab> {
     bool checked = false;
     bool saving = false;
     bool uploadingPhoto = false;
+    bool proofPinBypass = false;
     final List<String> uploadedUrls = [];
     final List<File> localPhotoFiles = [];
     final descCtrl = TextEditingController();
@@ -3424,7 +3498,7 @@ class _DashboardTabState extends State<DashboardTab> {
         builder: (ctx, setDlg) {
           final isReady = checked &&
               descCtrl.text.trim().isNotEmpty &&
-              uploadedUrls.isNotEmpty &&
+              (uploadedUrls.isNotEmpty || proofPinBypass) &&
               !saving &&
               !uploadingPhoto;
 
@@ -3615,7 +3689,36 @@ class _DashboardTabState extends State<DashboardTab> {
                       },
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: uploadingPhoto
+                          ? null
+                          : () async {
+                              final ok = await showCompletionProofPinDialog(ctx);
+                              if (ok) {
+                                setDlg(() => proofPinBypass = true);
+                              }
+                            },
+                      icon: Icon(
+                        Icons.pin_outlined,
+                        size: 16,
+                        color: proofPinBypass ? _kSuccess : _kCopper,
+                      ),
+                      label: Text(
+                        proofPinBypass
+                            ? 'PIN verified — photo optional'
+                            : 'Complete without photo (PIN)',
+                        style: GoogleFonts.dmSans(
+                          color: proofPinBypass ? _kSuccess : _kCopper,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
 
                   // Verification Checkbox
                   GestureDetector(
@@ -3747,6 +3850,7 @@ class _DashboardTabState extends State<DashboardTab> {
   ) async {
     bool uploadingPhoto = false;
     bool checked = false;
+    bool proofPinBypass = false;
     final List<String> uploadedUrls = [];
     final List<File> localPhotoFiles = [];
     final descCtrl = TextEditingController();
@@ -3758,7 +3862,7 @@ class _DashboardTabState extends State<DashboardTab> {
         builder: (ctx, setDlg) {
           final isReady = checked &&
               descCtrl.text.trim().isNotEmpty &&
-              uploadedUrls.isNotEmpty &&
+              (uploadedUrls.isNotEmpty || proofPinBypass) &&
               !uploadingPhoto;
 
           return AlertDialog(
@@ -3951,7 +4055,34 @@ class _DashboardTabState extends State<DashboardTab> {
                         },
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: uploadingPhoto
+                            ? null
+                            : () async {
+                                final ok = await showCompletionProofPinDialog(ctx);
+                                if (ok) setDlg(() => proofPinBypass = true);
+                              },
+                        icon: Icon(
+                          Icons.pin_outlined,
+                          size: 16,
+                          color: proofPinBypass ? _kSuccess : _kCopper,
+                        ),
+                        label: Text(
+                          proofPinBypass
+                              ? 'PIN verified — photo optional'
+                              : 'Complete without photo (PIN)',
+                          style: GoogleFonts.dmSans(
+                            color: proofPinBypass ? _kSuccess : _kCopper,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
 
                     // Verification checkbox
                     GestureDetector(
@@ -4002,7 +4133,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     String msg = 'Please fill all required fields';
                     if (descCtrl.text.trim().isEmpty) {
                       msg = 'Please enter a resolution description.';
-                    } else if (uploadedUrls.isEmpty) {
+                    } else if (uploadedUrls.isEmpty && !proofPinBypass) {
                       msg = 'Compulsory: Take at least 1 verification photo!';
                     } else if (!checked) {
                       msg = 'Please check the verification checkbox.';
@@ -4513,7 +4644,11 @@ class _DashboardTabState extends State<DashboardTab> {
                                   final completedTask = _CompletedTask(
                                     alertId: item.id,
                                     completedAt: item.timestamp,
-                                    completedBy: item.capturedByName.isNotEmpty ? item.capturedByName : 'Inspector',
+                                    completedBy: item.completedBy.isNotEmpty
+                                        ? item.completedBy
+                                        : (item.capturedByName.isNotEmpty
+                                            ? item.capturedByName
+                                            : 'Inspector'),
                                     completedDescription: item.completedDescription,
                                     completedPhotoUrl: item.completedPhotoUrl,
                                     completedPhotoUrls: item.completedPhotoUrls,
@@ -5826,17 +5961,26 @@ class _DashboardTabState extends State<DashboardTab> {
     );
 
     final List<pw.TableRow> rows = [headerRow];
+    final reportOpenAlerts = _allAlerts
+        .where((a) => !a.acknowledged && a.status.toLowerCase() != 'completed')
+        .toList();
 
     // ── Helper: build Other Parameters cell ──────────────────────────────
     pw.Widget buildOtherParamsCell({
       required Map<String, dynamic> readingValues,
       required TankModel tank,
       required pw.BoxDecoration? rowBg,
+      DashboardStatsModel? stats,
     }) {
       final List<Map<String, dynamic>> entries = [];
       for (final p in uncommonParams) {
         final label = p['label'].toString();
-        final val = readingValues[label];
+        final val = _inspectionValueForParam(
+          readingValues: readingValues,
+          tank: tank,
+          paramLabel: label,
+          stats: stats,
+        );
         if (val == null) continue;
         final prop = _getTankParamProp(tank, label) ?? p;
         final valStr = _formatValueWithArrow(val, prop);
@@ -5912,7 +6056,11 @@ class _DashboardTabState extends State<DashboardTab> {
             ),
           );
         } else {
-          final alertSev = _getTankActiveAlertSeverity(tank.id, _allAlerts.where((a) => !a.acknowledged && a.status.toLowerCase() != 'completed').toList());
+          final alertSev = _rowAlertSeverityForInspectionReport(
+            tankId: tank.id,
+            openAlerts: reportOpenAlerts,
+            capturedToday: true,
+          );
           final rowBg = _getRowColor(alertSev);
           final timeStr = DateFormat('hh:mm a').format(DateTime.parse(stats.lastCapturedAt!).toLocal());
 
@@ -5920,8 +6068,14 @@ class _DashboardTabState extends State<DashboardTab> {
           cells.add(_pdfCell('$cleanName\n$timeStr', fill: rowBg, fontSize: cellFontSize, fontWeight: pw.FontWeight.bold, textColor: rowBg != null ? pdf.PdfColors.black : null, padding: cellPadding));
 
           for (final p in commonParams) {
-            final val = stats.lastReading[p['label']];
-            var valStr = _formatValueWithArrow(val, _getTankParamProp(tank, p['label'].toString()));
+            final label = p['label'].toString();
+            final val = _inspectionValueForParam(
+              readingValues: stats.lastReading,
+              tank: tank,
+              paramLabel: label,
+              stats: stats,
+            );
+            var valStr = _formatValueWithArrow(val, _getTankParamProp(tank, label));
             if (compress && valStr != '-' && valStr.length > 5 && !_isNumericOrRange(valStr)) {
               valStr = abbrService.abbreviate(valStr);
             }
@@ -5976,6 +6130,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 readingValues: stats.lastReading,
                 tank: tank,
                 rowBg: rowBg != null ? pw.BoxDecoration(color: rowBg) : null,
+                stats: stats,
               ),
             );
           }
@@ -6020,7 +6175,9 @@ class _DashboardTabState extends State<DashboardTab> {
           );
         } else {
           for (final r in tankReadings) {
-            final alertSev = _getTankActiveAlertSeverity(tank.id, _allAlerts.where((a) => !a.acknowledged && a.status.toLowerCase() != 'completed').toList());
+            final alertSev = _isReadingViolated(r, reportOpenAlerts)
+                ? _getTankActiveAlertSeverity(tank.id, reportOpenAlerts)
+                : null;
             final rowBg = _getRowColor(alertSev);
             final timeStr = DateFormat('hh:mm a').format(DateTime.parse(r.capturedAt).toLocal());
 
@@ -6028,8 +6185,13 @@ class _DashboardTabState extends State<DashboardTab> {
             cells.add(_pdfCell('$cleanName\n$timeStr', fill: rowBg, fontSize: cellFontSize, fontWeight: pw.FontWeight.bold, textColor: rowBg != null ? pdf.PdfColors.black : null, padding: cellPadding));
 
             for (final p in commonParams) {
-              final val = r.inspectionValues[p['label']];
-              var valStr = _formatValueWithArrow(val, _getTankParamProp(tank, p['label'].toString()));
+              final label = p['label'].toString();
+              final val = _inspectionValueForParam(
+                readingValues: r.inspectionValues,
+                tank: tank,
+                paramLabel: label,
+              );
+              var valStr = _formatValueWithArrow(val, _getTankParamProp(tank, label));
               if (compress && valStr != '-' && valStr.length > 5 && !_isNumericOrRange(valStr)) {
                 valStr = abbrService.abbreviate(valStr);
               }
@@ -6588,12 +6750,13 @@ class _DashboardTabState extends State<DashboardTab> {
     if (isToday) {
       for (final t in folderTanks) {
         final stats = statsByTank[t.id];
-        final hasReading = stats != null && stats.lastCapturedAt != null;
-        if (!hasReading) {
+        final capturedToday =
+            stats != null && _isCapturedToday(stats.lastCapturedAt);
+        if (!capturedToday) {
           pendingTanks.add(t);
           normalTanks.add(t);
         } else {
-          final isViolated = openAlerts.any((a) => a.tankId == t.id);
+          final isViolated = _tankHasOpenAlert(t.id, openAlerts);
           if (isViolated) {
             violatedTanks.add(t);
           } else {
@@ -6736,12 +6899,13 @@ class _DashboardTabState extends State<DashboardTab> {
     if (isToday) {
       for (final t in folderTanks) {
         final stats = statsByTank[t.id];
-        final hasReading = stats != null && stats.lastCapturedAt != null;
-        if (!hasReading) {
+        final capturedToday =
+            stats != null && _isCapturedToday(stats.lastCapturedAt);
+        if (!capturedToday) {
           pendingTanks.add(t);
           normalTanks.add(t);
         } else {
-          final isViolated = openAlerts.any((a) => a.tankId == t.id);
+          final isViolated = _tankHasOpenAlert(t.id, openAlerts);
           if (isViolated) {
             violatedTanks.add(t);
           } else {
@@ -6866,7 +7030,11 @@ class _DashboardTabState extends State<DashboardTab> {
             }
             currentRow++;
           } else {
-            final alertSev = _getTankActiveAlertSeverity(tank.id, openAlerts);
+            final alertSev = _rowAlertSeverityForInspectionReport(
+              tankId: tank.id,
+              openAlerts: openAlerts,
+              capturedToday: true,
+            );
             final rowBg = alertSev == 'critical'
                 ? '#F2E6E6'
                 : (alertSev == 'warning' ? '#F7EAD7' : (alertSev == 'info' ? '#ECEFF1' : null));
@@ -6877,8 +7045,14 @@ class _DashboardTabState extends State<DashboardTab> {
             final rowCells = <xl.CellValue>[
               xl.TextCellValue(nameCellVal),
               ...params.map((p) {
-                final val = stats.lastReading[p['label']];
-                final prop = _getTankParamProp(tank, p['label'].toString()) ?? p;
+                final label = p['label'].toString();
+                final val = _inspectionValueForParam(
+                  readingValues: stats.lastReading,
+                  tank: tank,
+                  paramLabel: label,
+                  stats: stats,
+                );
+                final prop = _getTankParamProp(tank, label) ?? p;
                 var valStr = _formatValueWithArrow(val, prop, forExcel: true);
                 if (compress && valStr != '-' && valStr.length > 5) {
                   valStr = abbrService.abbreviate(valStr);
@@ -7740,8 +7914,7 @@ class _DashboardTabState extends State<DashboardTab> {
   void _flushParamColors(List<Map<String, dynamic>> pendingDbWrites) async {
     if (pendingDbWrites.isEmpty) return;
     try {
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       for (final write in pendingDbWrites) {
         final key = write['key'];
         final data = Map<String, dynamic>.from(write['data']);

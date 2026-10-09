@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:lubrication_indicator/core/utils/media_url_resolver.dart';
 import 'dashboard_alerts_display_model.dart';
 
 class FannedCardLayout extends StatelessWidget {
@@ -20,9 +21,10 @@ class FannedCardLayout extends StatelessWidget {
     final List<SlideImageItem> allSlides = [];
 
     for (final a in alerts) {
-      if (a.imageUrl.isNotEmpty) {
+      final captureUrl = MediaUrlResolver.resolve(a.imageUrl);
+      if (captureUrl.isNotEmpty) {
         allSlides.add(SlideImageItem(
-          url: a.imageUrl,
+          url: captureUrl,
           categoryTag: 'COMPLAINT IMAGE',
           alert: a,
         ));
@@ -30,14 +32,12 @@ class FannedCardLayout extends StatelessWidget {
       final proofUrls = a.completedPhotoUrls.isNotEmpty
           ? a.completedPhotoUrls
           : (a.completedPhotoUrl.isNotEmpty ? [a.completedPhotoUrl] : <String>[]);
-      for (final u in proofUrls) {
-        if (u.isNotEmpty) {
-          allSlides.add(SlideImageItem(
-            url: u,
-            categoryTag: 'COMPLETED PROOF',
-            alert: a,
-          ));
-        }
+      for (final u in MediaUrlResolver.resolveList(proofUrls)) {
+        allSlides.add(SlideImageItem(
+          url: u,
+          categoryTag: 'COMPLETED PROOF',
+          alert: a,
+        ));
       }
     }
 

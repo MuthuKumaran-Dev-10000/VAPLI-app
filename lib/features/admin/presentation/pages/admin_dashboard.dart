@@ -25,6 +25,7 @@ import 'package:lubrication_indicator/features/admin/presentation/pages/admin_se
 import 'package:lubrication_indicator/features/admin/presentation/pages/admin_audit_logs_page.dart';
 import 'package:lubrication_indicator/features/auth/data/models/user_model.dart';
 import 'package:excel/excel.dart' as xl;
+import 'package:lubrication_indicator/features/tanks/data/repositories/tank_repository.dart';
 import 'package:lubrication_indicator/features/tanks/data/repositories/tank_tree_repository.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_node_model.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
@@ -426,13 +427,21 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Future<void> _exportStructureJson() async {
     try {
-      final tanksSnap = await _dashRef('tanks').get();
-      final treeSnap = await _dashRef('tank_tree').get();
+      final tanksList = await TankRepository().getAllTanks();
+      final nodesList = await TankTreeRepository().fetchAll();
+
+      final tanksMap = <String, dynamic>{};
+      for (final t in tanksList) {
+        tanksMap[t.id] = t.toMap();
+      }
+
+      final treeListMap = nodesList.map((n) => n.toMap()).toList();
+
       final payload = {
         'exported_at': DateTime.now().toIso8601String(),
         'mode': DatabaseModeService.isDevelopment.value ? 'development' : 'production',
-        'tanks': tanksSnap.value ?? <String, dynamic>{},
-        'tank_tree': treeSnap.value ?? <String, dynamic>{},
+        'tanks': tanksMap,
+        'tank_tree': treeListMap,
       };
       final jsonStr = const JsonEncoder.withIndent('  ').convert(payload);
       final bytes = utf8.encode(jsonStr);
@@ -469,7 +478,7 @@ class _AdminDashboardState extends State<AdminDashboard>
             ],
           ),
           content: Text(
-            'Unable to save report. No writable storage location was found. The report was not lost. Please check device storage permissions and available disk space.\n\nDetails: $e',
+            'Unable to save export file. Details: $e',
             style: const TextStyle(color: Color(0xFF8A8F9C), fontSize: 13),
           ),
           actions: [
@@ -487,7 +496,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     try {
       final excel = xl.Excel.createExcel();
       
-      // Remove Sheet1
       if (excel.tables.containsKey('Sheet1')) {
         excel.delete('Sheet1');
       }
@@ -496,21 +504,11 @@ class _AdminDashboardState extends State<AdminDashboard>
       final explanationSheet = excel['Parameter_Explanation'];
       final thenSheet = excel['THEN_Parameters'];
 
-      // 1. Fetch data from Firebase
       final nodes = await TankTreeRepository().fetchAll();
-      final tanksSnap = await _dashRef('tanks').get();
+      final tanksList = await TankRepository().getAllTanks();
       final tanks = <String, TankModel>{};
-      if (tanksSnap.exists && tanksSnap.value is Map) {
-        final rawTanks = Map<dynamic, dynamic>.from(tanksSnap.value as Map);
-        rawTanks.forEach((k, v) {
-          if (v is Map) {
-            final m = Map<String, dynamic>.from(v);
-            if (!m.containsKey('id')) {
-              m['id'] = k.toString();
-            }
-            tanks[k.toString()] = TankModel.fromMap(m);
-          }
-        });
+      for (final t in tanksList) {
+        tanks[t.id] = t;
       }
 
       // 2. Separate helper functions for parent properties vs THEN (nested) properties
@@ -2058,92 +2056,155 @@ class _AdminDashboardState extends State<AdminDashboard>
                   if (raw.trim().isEmpty) throw Exception('JSON is empty');
                   final decoded = jsonDecode(raw);
                   if (decoded is! Map) throw Exception('Invalid JSON root');
-                  final clientName = await ClientContextService.resolveClientName(
-                    fallback: widget.activeClient?.name,
-                  );
-                  if (clientName == null || clientName.trim().isEmpty) {
+                  final activeClient = await ClientContextService.getActiveClient();
+                  final clientId = activeClient?.id;
+                  if (clientId == null || clientId.trim().isEmpty) {
                     throw Exception('Select an active client before importing');
                   }
-                  final tanks = decoded['tanks'] is Map
-                      ? Map<String, dynamic>.from(decoded['tanks'] as Map)
-                      : <String, dynamic>{};
-                  final tree = decoded['tank_tree'] is Map
-                      ? Map<String, dynamic>.from(decoded['tank_tree'] as Map)
-                      : <String, dynamic>{};
-                  final cascadeId = HashUtil.generateId();
+                  final clientName = activeClient!.name;
+
+                  final existingTanks = await TankRepository().getAllTanks();
+                  final existingNodes = await TankTreeRepository().fetchAll();
+
+                  final existingTanksByCode = <String, TankModel>{};
+                  final existingTanksById = <String, TankModel>{};
+                  for (final et in existingTanks) {
+                    if (et.tankCode.trim().isNotEmpty) {
+                      existingTanksByCode[et.tankCode.trim().toLowerCase()] = et;
+                    }
+                    existingTanksById[et.id] = et;
+                  }
+
+                  final idMap = <String, String>{};
+
+                  final tanksData = decoded['tanks'];
+                  final importedTanksList = <Map<String, dynamic>>[];
+                  if (tanksData is Map) {
+                    for (final entry in tanksData.entries) {
+                      if (entry.value is Map) {
+                        final m = Map<String, dynamic>.from(entry.value as Map);
+                        m['id'] = m['id']?.toString() ?? entry.key.toString();
+                        importedTanksList.add(m);
+                      }
+                    }
+                  } else if (tanksData is List) {
+                    for (final item in tanksData) {
+                      if (item is Map) {
+                        importedTanksList.add(Map<String, dynamic>.from(item));
+                      }
+                    }
+                  }
+
                   final importedTankNames = <String>[];
                   var importedParamCount = 0;
-                  for (final entry in tanks.entries.toList()) {
-                    final value = entry.value;
-                    if (value is! Map) continue;
-                    final tank = Map<String, dynamic>.from(value);
-                    final tankName = tank['tank_name']?.toString() ?? '';
+
+                  for (final item in importedTanksList) {
+                    final importedId = item['id']?.toString() ?? HashUtil.generateId();
+                    final tankCode = item['tank_code']?.toString().trim() ?? '';
+                    final tankName = item['tank_name']?.toString().trim() ?? '';
                     if (tankName.isNotEmpty) importedTankNames.add(tankName);
-                    final params = tank['inspection_properties'] is List
-                        ? (tank['inspection_properties'] as List)
-                            .whereType<Map>()
-                            .toList()
-                        : const <Map>[];
-                    importedParamCount += params
-                        .where((p) => p['type']?.toString() != 'group')
-                        .length;
-                    tank['location'] = clientName;
-                    final qrJson = tank['qr_json'];
-                    if (qrJson is String && qrJson.trim().isNotEmpty) {
-                      try {
-                        final qrMap = Map<String, dynamic>.from(jsonDecode(qrJson) as Map);
-                        qrMap['location'] = clientName;
-                        tank['qr_json'] = jsonEncode(qrMap);
-                      } catch (_) {
-                        tank['qr_json'] = jsonEncode({
-                          'tank_id': tank['id']?.toString() ?? entry.key.toString(),
-                          'tank_code': tank['tank_code']?.toString() ?? '',
-                          'tank_name': tank['tank_name']?.toString() ?? '',
-                          'location': clientName,
-                        });
+
+                    final props = item['inspection_properties'] is List
+                        ? (item['inspection_properties'] as List).whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList()
+                        : <Map<String, dynamic>>[];
+                    importedParamCount += props.where((p) => p['type']?.toString() != 'group').length;
+
+                    TankModel? match = (tankCode.isNotEmpty ? existingTanksByCode[tankCode.toLowerCase()] : null) ?? existingTanksById[importedId];
+
+                    if (match != null) {
+                      idMap[importedId] = match.id;
+                      await TankRepository().updateTank(
+                        id: match.id,
+                        tankCode: tankCode.isNotEmpty ? tankCode : match.tankCode,
+                        tankName: tankName.isNotEmpty ? tankName : match.tankName,
+                        location: clientName,
+                        scaleMax: (item['scale_max'] is num) ? (item['scale_max'] as num).toDouble() : match.scaleMax,
+                        scaleSide: item['scale_side']?.toString() ?? match.scaleSide,
+                        qrImageUrl: item['qr_image_url']?.toString() ?? match.qrImageUrl,
+                        properties: props.isNotEmpty ? props : match.inspectionProperties,
+                      );
+                    } else {
+                      final created = await TankRepository().createTank(
+                        tankCode: tankCode.isNotEmpty ? tankCode : 'TANK_${HashUtil.generateId().substring(0, 6)}',
+                        tankName: tankName.isNotEmpty ? tankName : 'Unnamed Asset',
+                        location: clientName,
+                        scaleMax: (item['scale_max'] is num) ? (item['scale_max'] as num).toDouble() : 100.0,
+                        scaleSide: item['scale_side']?.toString() ?? 'right',
+                        qrImageUrl: item['qr_image_url']?.toString(),
+                        createdBy: widget.currentUser.username,
+                        properties: props,
+                      );
+                      idMap[importedId] = created.id;
+                    }
+                  }
+
+                  final treeData = decoded['tank_tree'];
+                  final importedNodes = <Map<String, dynamic>>[];
+                  if (treeData is List) {
+                    for (final item in treeData) {
+                      if (item is Map) importedNodes.add(Map<String, dynamic>.from(item));
+                    }
+                  } else if (treeData is Map) {
+                    for (final entry in treeData.entries) {
+                      if (entry.value is Map) {
+                        final m = Map<String, dynamic>.from(entry.value as Map);
+                        m['id'] = m['id']?.toString() ?? entry.key.toString();
+                        importedNodes.add(m);
+                      }
+                    }
+                  }
+
+                  importedNodes.sort((a, b) {
+                    final typeA = a['type']?.toString() == 'folder' ? 0 : 1;
+                    final typeB = b['type']?.toString() == 'folder' ? 0 : 1;
+                    return typeA.compareTo(typeB);
+                  });
+
+                  for (final item in importedNodes) {
+                    final nodeType = item['type']?.toString() ?? 'leaf';
+                    final nodeName = item['name']?.toString() ?? 'Node';
+                    final oldId = item['id']?.toString() ?? '';
+                    final oldParentId = item['parent_id']?.toString();
+                    final mappedParentId = oldParentId != null ? idMap[oldParentId] ?? oldParentId : null;
+
+                    if (nodeType == 'folder') {
+                      final existingFolder = existingNodes.cast<TankNode?>().firstWhere(
+                        (n) => n != null && n.isFolder && n.name.toLowerCase() == nodeName.toLowerCase() && n.parentId == mappedParentId,
+                        orElse: () => null,
+                      );
+                      if (existingFolder != null) {
+                        idMap[oldId] = existingFolder.id;
+                      } else {
+                        final newFolder = await TankTreeRepository().createFolder(
+                          name: nodeName,
+                          description: item['description']?.toString(),
+                          zone: clientName,
+                          parentId: mappedParentId,
+                        );
+                        idMap[oldId] = newFolder.id;
                       }
                     } else {
-                      tank['qr_json'] = jsonEncode({
-                        'tank_id': tank['id']?.toString() ?? entry.key.toString(),
-                        'tank_code': tank['tank_code']?.toString() ?? '',
-                        'tank_name': tank['tank_name']?.toString() ?? '',
-                        'location': clientName,
-                      });
+                      final oldTankId = item['tank_id']?.toString() ?? oldId;
+                      final mappedTankId = idMap[oldTankId] ?? oldTankId;
+                      final existingLeaf = existingNodes.cast<TankNode?>().firstWhere(
+                        (n) => n != null && n.isLeaf && n.tankId == mappedTankId && n.parentId == mappedParentId,
+                        orElse: () => null,
+                      );
+                      if (existingLeaf != null) {
+                        idMap[oldId] = existingLeaf.id;
+                      } else {
+                        final newLeaf = await TankTreeRepository().createLeaf(
+                          name: nodeName,
+                          tankId: mappedTankId,
+                          zone: clientName,
+                          parentId: mappedParentId,
+                        );
+                        idMap[oldId] = newLeaf.id;
+                      }
                     }
-                    tanks[entry.key] = tank;
                   }
 
-                  dynamic rewriteTreeZones(dynamic value) {
-                    if (value is Map) {
-                      final node = <String, dynamic>{};
-                      for (final entry in value.entries) {
-                        final key = entry.key.toString();
-                        final child = entry.value;
-                        node[key] = rewriteTreeZones(child);
-                      }
-                      if (node.containsKey('zone')) {
-                        node['zone'] = clientName;
-                      }
-                      return node;
-                    }
-                    if (value is List) {
-                      return value.map(rewriteTreeZones).toList();
-                    }
-                    return value;
-                  }
-
-                  for (final entry in tree.entries.toList()) {
-                    tree[entry.key] = rewriteTreeZones(entry.value);
-                  }
-                  final tanksRef = _dashRef('tanks');
-                  final treeRef = _dashRef('tank_tree');
-                  if (replace) {
-                    await tanksRef.set(tanks);
-                    await treeRef.set(tree);
-                  } else {
-                    await tanksRef.update(tanks);
-                    await treeRef.update(tree);
-                  }
+                  final cascadeId = HashUtil.generateId();
                   if (!mounted) return;
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -2155,7 +2216,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     details: {
                       'replace_mode': replace,
                       'cascade_id': cascadeId,
-                      'imported_tank_count': tanks.length,
+                      'imported_tank_count': importedTanksList.length,
                       'imported_parameter_count': importedParamCount,
                       'imported_tanks': importedTankNames,
                     },

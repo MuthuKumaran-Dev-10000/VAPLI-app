@@ -1,5 +1,7 @@
 // lib/features/dashboard_folders/dashboard_alerts_display_model.dart
 
+import 'package:lubrication_indicator/core/utils/media_url_resolver.dart';
+
 class DashboardAlertDisplayItem {
   final String id;
   final String alertTitle;
@@ -30,6 +32,7 @@ class DashboardAlertDisplayItem {
   final String dueTimeRange;
   final String dueDate;
   final String constraintValue;
+  final String completedBy;
 
   DashboardAlertDisplayItem({
     required this.id,
@@ -61,6 +64,7 @@ class DashboardAlertDisplayItem {
     this.severityRating = 50,
     this.dueTimeRange = 'today',
     this.dueDate = '',
+    this.completedBy = '',
   });
 
   Map<String, dynamic> toMap() {
@@ -94,6 +98,7 @@ class DashboardAlertDisplayItem {
       'severity_rating': severityRating,
       'due_time_range': dueTimeRange,
       'due_date': dueDate,
+      'completed_by': completedBy,
     };
   }
 
@@ -182,7 +187,11 @@ class DashboardAlertDisplayItem {
       constraintValue: (m['constraint_value'] ?? m['compare_value'] ?? m['threshold_value'] ?? m['param_value'] ?? m['value_json'])?.toString() ?? '',
       capturedBy: m['captured_by']?.toString() ?? '',
       capturedByName: m['captured_by_name']?.toString() ?? '',
-      imageUrl: m['image_url']?.toString() ?? '',
+      imageUrl: MediaUrlResolver.resolve(
+        m['image_url']?.toString() ??
+            m['capture_image_url']?.toString() ??
+            '',
+      ),
       constraintId: m['constraint_id']?.toString() ?? '',
       timestamp: m['timestamp']?.toString() ?? '',
       acknowledged: m['acknowledged'] == true,
@@ -191,8 +200,11 @@ class DashboardAlertDisplayItem {
       readingId: m['reading_id']?.toString() ?? '',
       ifThen: m['if_then']?.toString() ?? '',
       completedDescription: m['completed_description']?.toString() ?? '',
-      completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
-      completedPhotoUrls: parsedUrls,
+      completedPhotoUrl: MediaUrlResolver.resolve(
+        m['completed_photo_url']?.toString() ?? '',
+      ),
+      completedPhotoUrls: MediaUrlResolver.resolveList(parsedUrls),
+      completedBy: m['completed_by']?.toString() ?? '',
       rankScore: score,
       severityRating: rating,
       dueTimeRange: timeRange,

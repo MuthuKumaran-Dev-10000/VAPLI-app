@@ -11,7 +11,7 @@ class _StyledDialog extends StatelessWidget {
   final Widget child;
   final String? confirmLabel;
   final bool saving;
-  final VoidCallback onConfirm;
+  final Future<void> Function()? onConfirm;
 
   const _StyledDialog({
     required this.title,
@@ -68,7 +68,11 @@ class _StyledDialog extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             GestureDetector(
-              onTap: saving ? null : onConfirm,
+              onTap: saving
+                  ? null
+                  : () {
+                      onConfirm?.call();
+                    },
               child: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 11),

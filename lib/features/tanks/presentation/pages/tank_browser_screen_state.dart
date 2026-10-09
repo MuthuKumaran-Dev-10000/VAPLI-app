@@ -331,7 +331,10 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
               }
               final desc = descCtrl.text.trim();
               final parentId = _currentFolder?.id;
-              if (ctx.mounted) Navigator.pop(ctx);
+              setDlg(() {
+                saving = true;
+                error = null;
+              });
               try {
                 await _treeRepo.createFolder(
                   name: name,
@@ -344,7 +347,14 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
                   'description': desc,
                   'parent_id': parentId ?? '',
                 });
+                if (ctx.mounted) Navigator.pop(ctx);
               } catch (e) {
+                if (ctx.mounted) {
+                  setDlg(() {
+                    saving = false;
+                    error = 'Could not create group';
+                  });
+                }
                 if (mounted) _snack('Failed to create group: $e', _kDanger);
               }
             },
@@ -518,7 +528,10 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
                 return;
               }
               final desc = descCtrl.text.trim();
-              if (ctx.mounted) Navigator.pop(ctx);
+              setDlg(() {
+                saving = true;
+                error = null;
+              });
               try {
                 await _treeRepo.updateFolder(
                   id: node.id,
@@ -532,7 +545,14 @@ class _TankBrowserScreenState extends State<TankBrowserScreen>
                   'new_name': name,
                   'description': desc,
                 });
+                if (ctx.mounted) Navigator.pop(ctx);
               } catch (e) {
+                if (ctx.mounted) {
+                  setDlg(() {
+                    saving = false;
+                    error = 'Could not update group';
+                  });
+                }
                 if (mounted) _snack('Failed to update group: $e', _kDanger);
               }
             },

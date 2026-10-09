@@ -436,73 +436,25 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
   }
 
   Widget _buildProofEvidenceHeader(DashboardAlertDisplayItem a) {
-    final List<SlideImageItem> allMediaItems = [];
-
-    if (a.imageUrl.isNotEmpty) {
-      allMediaItems.add(SlideImageItem(
-        url: a.imageUrl,
-        categoryTag: 'COMPLAINT IMAGE',
-        alert: a,
-      ));
-    }
-
-    final proofUrls = a.completedPhotoUrls.isNotEmpty
-        ? a.completedPhotoUrls
-        : (a.completedPhotoUrl.isNotEmpty ? [a.completedPhotoUrl] : <String>[]);
-
-    for (final u in proofUrls) {
-      if (u.isNotEmpty) {
-        allMediaItems.add(SlideImageItem(
-          url: u,
-          categoryTag: 'COMPLETED PROOF',
-          alert: a,
-        ));
-      }
-    }
-
-    if (allMediaItems.isEmpty && a.completedDescription.isEmpty) {
+    if (a.completedDescription.isEmpty) {
       return const SizedBox.shrink();
     }
 
     return Container(
       margin: const EdgeInsets.only(top: 10, bottom: 6),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF142219),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kSuccess.withOpacity(0.4)),
+        border: Border.all(color: _kSuccess.withOpacity(0.35)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.verified_rounded, color: _kSuccess, size: 14),
-              const SizedBox(width: 6),
-              Text(
-                'COMPLETION PROOF & VERIFICATION',
-                style: GoogleFonts.spaceGrotesk(
-                  color: _kSuccess,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const Spacer(),
-              if (allMediaItems.isNotEmpty)
-                Text(
-                  '${allMediaItems.length} Photo${allMediaItems.length > 1 ? "s" : ""}',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: _kSuccess,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-            ],
-          ),
-          if (a.completedDescription.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
+          const Icon(Icons.notes_rounded, color: _kSuccess, size: 14),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
               a.completedDescription,
               style: GoogleFonts.dmSans(
                 color: _kText,
@@ -510,83 +462,7 @@ class _FolderAlertsViewState extends State<FolderAlertsView> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-          ],
-          if (allMediaItems.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 60,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: allMediaItems.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (ctx, i) {
-                  final item = allMediaItems[i];
-                  final isComplaint = item.categoryTag == 'COMPLAINT IMAGE';
-
-                  return GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        ctx,
-                        MaterialPageRoute(
-                          builder: (_) => FullScreenSlideViewer(
-                            slides: allMediaItems,
-                            initialIndex: i,
-                          ),
-                        ),
-                      );
-                    },
-                    child: Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: isComplaint ? _kDanger : _kSuccess,
-                                width: 1.5,
-                              ),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Image.network(
-                              item.url,
-                              width: 60,
-                              height: 60,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                width: 60,
-                                height: 60,
-                                color: const Color(0xFF252830),
-                                child: const Icon(Icons.broken_image_rounded, color: _kSub, size: 20),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          top: 2,
-                          left: 2,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: isComplaint ? _kDanger : _kSuccess,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: Text(
-                              isComplaint ? 'ALERT' : 'PROOF',
-                              style: GoogleFonts.spaceGrotesk(
-                                color: Colors.white,
-                                fontSize: 7,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );

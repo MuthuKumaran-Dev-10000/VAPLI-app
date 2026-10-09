@@ -7,8 +7,7 @@ import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart
 
 class DashboardStatsRepository {
   Future<String> _getClientId() async {
-    final client = await ClientContextService.getActiveClient();
-    return client?.id ?? 'dummy_client_id';
+    return ClientContextService.requireActiveClientId();
   }
 
   Stream<DashboardStatsModel> watchStats(String tankId) {
@@ -21,20 +20,30 @@ class DashboardStatsRepository {
     return controller.stream;
   }
 
-  Future<DashboardStatsModel> getStats(String tankId) async {
+  Future<Map<String, DashboardStatsModel>> getAllStatsByTank() async {
     final clientId = await _getClientId();
     final response = await ApiClient.get('/clients/$clientId/dashboard/stats');
-    if (response is Map && response['success'] == true && response['data'] != null) {
+    final out = <String, DashboardStatsModel>{};
+    if (response is Map &&
+        response['success'] == true &&
+        response['data'] != null) {
       final statsList = (response['data']['tanksStats'] as List?) ?? [];
-      final match = statsList.firstWhere(
-        (s) => s['tank_id'].toString() == tankId,
-        orElse: () => null,
-      );
-      if (match != null) {
-        return DashboardStatsModel.fromMap(tankId, Map<dynamic, dynamic>.from(match));
+      for (final row in statsList) {
+        if (row is! Map) continue;
+        final tid = row['tank_id']?.toString() ?? '';
+        if (tid.isEmpty) continue;
+        out[tid] = DashboardStatsModel.fromMap(
+          tid,
+          Map<dynamic, dynamic>.from(row),
+        );
       }
     }
-    return DashboardStatsModel.empty(tankId);
+    return out;
+  }
+
+  Future<DashboardStatsModel> getStats(String tankId) async {
+    final all = await getAllStatsByTank();
+    return all[tankId] ?? DashboardStatsModel.empty(tankId);
   }
 
   Future<void> updateStatsAfterReading({

@@ -18,8 +18,7 @@ class TankTreeRepository {
   }
 
   Future<String> _getClientId() async {
-    final client = await ClientContextService.getActiveClient();
-    return client?.id ?? 'dummy_client_id';
+    return ClientContextService.requireActiveClientId();
   }
 
   Stream<List<TankNode>> watchChildren(String? parentId) {

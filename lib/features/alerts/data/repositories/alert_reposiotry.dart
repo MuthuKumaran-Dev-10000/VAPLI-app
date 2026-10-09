@@ -5,8 +5,7 @@ import '../models/alert_model.dart';
 
 class AlertRepository {
   Future<String> _getClientId() async {
-    final client = await ClientContextService.getActiveClient();
-    return client?.id ?? 'dummy_client_id';
+    return ClientContextService.requireActiveClientId();
   }
 
   Future<AlertModel> createAlert({

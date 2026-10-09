@@ -104,7 +104,11 @@ class _AlertModel {
       constraintValue: (m['constraint_value'] ?? m['compare_value'] ?? m['threshold_value'] ?? m['param_value'] ?? m['value_json'])?.toString() ?? '',
       capturedBy: m['captured_by']?.toString() ?? '',
       capturedByName: m['captured_by_name']?.toString() ?? '',
-      imageUrl: m['image_url']?.toString() ?? '',
+      imageUrl: MediaUrlResolver.resolve(
+        m['image_url']?.toString() ??
+            m['capture_image_url']?.toString() ??
+            '',
+      ),
       constraintId: m['constraint_id']?.toString() ?? '',
       timestamp: (m['timestamp'] ?? m['captured_at'])?.toString() ?? '',
       acknowledged: parseBool(m['acknowledged'] ?? m['resolved']),
@@ -113,8 +117,10 @@ class _AlertModel {
       readingId: m['reading_id']?.toString() ?? '',
       ifThen: m['if_then']?.toString() ?? '',
       completedDescription: m['completed_description']?.toString() ?? '',
-      completedPhotoUrl: m['completed_photo_url']?.toString() ?? '',
-      completedPhotoUrls: parsedUrls,
+      completedPhotoUrl: MediaUrlResolver.resolve(
+        m['completed_photo_url']?.toString() ?? '',
+      ),
+      completedPhotoUrls: MediaUrlResolver.resolveList(parsedUrls),
     );
   }
 }

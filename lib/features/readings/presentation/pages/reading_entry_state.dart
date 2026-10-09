@@ -1306,8 +1306,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     };
 
     try {
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       await ApiClient.post('/clients/$clientId/alerts', record);
     } catch (e) {
       debugPrint('[LiveAlert] Write failed: $e');
@@ -1324,8 +1323,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
     _liveAlertIds[paramId]!.remove(constraintId);
 
     try {
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       await ApiClient.delete('/clients/$clientId/alerts/$alertId');
     } catch (e) {
       debugPrint('[LiveAlert] Delete failed: $e');
@@ -1526,8 +1524,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
         'all_values_snapshot': currentValues,
         if (ifThenStr.isNotEmpty) 'if_then': ifThenStr,
       };
-      final client = await ClientContextService.getActiveClient();
-      final clientId = client?.id ?? 'dummy_client_id';
+      final clientId = await ClientContextService.requireActiveClientId();
       await ApiClient.put('/clients/$clientId/alerts/$alertId', update);
     } catch (e) {
       debugPrint('[LiveAlert] Update failed: $e');
@@ -1797,8 +1794,7 @@ class _ReadingEntryScreenState extends State<ReadingEntryScreen> {
           final alertId = item.value;
           try {
             final ifThenStr = _buildIfThenString(paramId, constraintId, inspVals);
-            final client = await ClientContextService.getActiveClient();
-            final clientId = client?.id ?? 'dummy_client_id';
+            final clientId = await ClientContextService.requireActiveClientId();
             await ApiClient.put('/clients/$clientId/alerts/$alertId', {
               'live': false,
               'reading_id': reading.id ?? '',

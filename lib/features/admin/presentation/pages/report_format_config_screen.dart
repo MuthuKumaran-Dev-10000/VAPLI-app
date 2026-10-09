@@ -2225,8 +2225,13 @@ class _ReportMockupPreviewModalState extends State<_ReportMockupPreviewModal> {
 
     final sortedFolderIds = folderGroups.keys.toList()
       ..sort((a, b) {
-        final nameA = (a == 'root') ? 'General' : (widget.allNodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null)?.name ?? 'General');
-        final nameB = (b == 'root') ? 'General' : (widget.allNodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null)?.name ?? 'General');
+        final nodeA = widget.allNodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == a, orElse: () => null);
+        final nodeB = widget.allNodes.cast<TankNode?>().firstWhere((n) => n != null && n.id == b, orElse: () => null);
+        final orderA = (a == 'root') ? -1 : (nodeA?.order ?? 999999);
+        final orderB = (b == 'root') ? -1 : (nodeB?.order ?? 999999);
+        if (orderA != orderB) return orderA.compareTo(orderB);
+        final nameA = (a == 'root') ? 'General' : (nodeA?.name ?? 'General');
+        final nameB = (b == 'root') ? 'General' : (nodeB?.name ?? 'General');
         return nameA.compareTo(nameB);
       });
 

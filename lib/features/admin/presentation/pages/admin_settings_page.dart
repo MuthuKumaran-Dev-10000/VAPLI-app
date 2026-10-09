@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:lubrication_indicator/core/services/database_mode_service.dart';
+import 'package:flutter/services.dart';
 import 'package:lubrication_indicator/core/services/app_settings_service.dart';
+import 'package:lubrication_indicator/core/services/completion_proof_pin_service.dart';
+import 'package:lubrication_indicator/core/services/email_receiver_settings.dart';
 import 'package:lubrication_indicator/features/tanks/data/models/tank_model.dart';
 import 'package:lubrication_indicator/features/tanks/data/repositories/tank_repository.dart';
 import 'report_format_config_screen.dart';
@@ -34,10 +36,16 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
   bool _showCompletedAlerts = true;
   bool _showActiveAlerts = true;
   bool _showInspectionCompliance = true;
+  final _completionProofPinCtrl = TextEditingController();
+  bool _showCompletionPin = false;
 
   final _reportEmailsCtrl = TextEditingController();
   final _alertsEmailsCtrl = TextEditingController();
   final _missingTanksEmailsCtrl = TextEditingController();
+
+  List<String> _reportEmailList = [];
+  List<String> _alertsEmailList = [];
+  List<String> _missingTanksEmailList = [];
 
   @override
   void initState() {
@@ -50,6 +58,7 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     _reportEmailsCtrl.dispose();
     _alertsEmailsCtrl.dispose();
     _missingTanksEmailsCtrl.dispose();
+    _completionProofPinCtrl.dispose();
     super.dispose();
   }
 
@@ -58,9 +67,15 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     final tanks = await _tankRepo.getAllTanks();
     final dashSettings = await AppSettingsService.getDashboardDisplaySettings();
 
-    final reportEmailsStr = '';
-    final alertsEmailsStr = '';
-    final missingTanksEmailsStr = '';
+    List<String> reportEmails = [];
+    List<String> alertsEmails = [];
+    List<String> missingTanksEmails = [];
+    try {
+      reportEmails = await EmailReceiverSettings.loadEmails(EmailReceiverSettings.reportKey);
+      alertsEmails = await EmailReceiverSettings.loadEmails(EmailReceiverSettings.alertsKey);
+      missingTanksEmails =
+          await EmailReceiverSettings.loadEmails(EmailReceiverSettings.missingTanksKey);
+    } catch (_) {}
 
     if (!mounted) return;
     setState(() {
@@ -71,9 +86,14 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
       _showCompletedAlerts = dashSettings['show_completed_alerts'] ?? true;
       _showActiveAlerts = dashSettings['show_active_alerts'] ?? true;
       _showInspectionCompliance = dashSettings['show_inspection_compliance'] ?? true;
-      _reportEmailsCtrl.text = reportEmailsStr;
-      _alertsEmailsCtrl.text = alertsEmailsStr;
-      _missingTanksEmailsCtrl.text = missingTanksEmailsStr;
+      _completionProofPinCtrl.text =
+          dashSettings['completion_proof_pin']?.toString() ?? '';
+      _reportEmailList = reportEmails;
+      _alertsEmailList = alertsEmails;
+      _missingTanksEmailList = missingTanksEmails;
+      _reportEmailsCtrl.clear();
+      _alertsEmailsCtrl.clear();
+      _missingTanksEmailsCtrl.clear();
       _loading = false;
     });
   }
@@ -122,36 +142,148 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     await _load();
   }
 
-  Future<void> _saveEmailsSilent(String path, String rawText) async {}
+  Future<void> _persistEmailList(String settingKey, List<String> emails) async {
+    await EmailReceiverSettings.saveEmails(settingKey, emails);
+  }
 
-  Future<void> _saveEmails(String path, String rawText) async {
-    if (mounted) {
+  Future<void> _saveEmailsForKey({
+    required String label,
+    required String settingKey,
+    required TextEditingController controller,
+    required List<String> currentList,
+    required void Function(List<String>) onListUpdated,
+  }) async {
+    final merged = EmailReceiverSettings.mergeParsedInput(controller.text, currentList);
+    if (merged.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Add at least one email for $label')),
+        );
+      }
+      return;
+    }
+    try {
+      await _persistEmailList(settingKey, merged);
+      if (!mounted) return;
+      setState(() {
+        onListUpdated(merged);
+        controller.clear();
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings saved successfully')),
+        SnackBar(content: Text('$label saved (${merged.length} address${merged.length == 1 ? '' : 'es'})')),
       );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save $label: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
-  Future<void> _viewEmails(String title, String path) async {
-    List<String> emails = [];
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: Text(emails.isEmpty ? 'No email recipients configured.' : emails.join('\n')),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-          ],
+  Future<void> _removeEmail({
+    required String label,
+    required String settingKey,
+    required List<String> currentList,
+    required int index,
+    required void Function(List<String>) onListUpdated,
+  }) async {
+    if (index < 0 || index >= currentList.length) return;
+    final next = List<String>.from(currentList)..removeAt(index);
+    try {
+      await _persistEmailList(settingKey, next);
+      if (!mounted) return;
+      setState(() => onListUpdated(next));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update $label: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _viewEmails(String title, List<String> emails) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: emails.isEmpty
+            ? const Text('No email addresses stored.')
+            : SizedBox(
+                width: double.maxFinite,
+                height: 280,
+                child: ListView.builder(
+                  itemCount: emails.length,
+                  itemBuilder: (_, idx) => ListTile(
+                    leading: const Icon(Icons.email_outlined, color: Color(0xFFCB8C3E)),
+                    title: Text(emails[idx]),
+                    dense: true,
+                  ),
+                ),
+              ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSavedEmailsList({
+    required String settingKey,
+    required String label,
+    required List<String> emails,
+    required void Function(List<String>) onListUpdated,
+  }) {
+    if (emails.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          'No saved recipients yet.',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
         ),
       );
     }
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      constraints: const BoxConstraints(maxHeight: 140),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Scrollbar(
+        thumbVisibility: emails.length > 4,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: emails.length,
+          itemBuilder: (_, idx) => ListTile(
+            dense: true,
+            title: Text(emails[idx], style: const TextStyle(fontSize: 13)),
+            trailing: widget.canEdit
+                ? IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Remove',
+                    onPressed: () => _removeEmail(
+                      label: label,
+                      settingKey: settingKey,
+                      currentList: emails,
+                      index: idx,
+                      onListUpdated: onListUpdated,
+                    ),
+                  )
+                : null,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmailSettingsField({
     required String label,
+    required String settingKey,
     required TextEditingController controller,
-    required String path,
+    required List<String> savedEmails,
+    required void Function(List<String>) onListUpdated,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -162,14 +294,16 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
         ),
         const SizedBox(height: 6),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: TextField(
                 controller: controller,
-                maxLines: null,
-                keyboardType: TextInputType.multiline,
+                minLines: 1,
+                maxLines: 4,
+                keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  hintText: 'e.g. user1@email.com, user2@email.com',
+                  hintText: 'Add emails (comma-separated)',
                   border: OutlineInputBorder(),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
@@ -179,16 +313,29 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
             const SizedBox(width: 8),
             IconButton(
               icon: const Icon(Icons.visibility_outlined, color: Color(0xFFCB8C3E)),
-              tooltip: 'View Emails',
-              onPressed: () => _viewEmails(label, path),
+              tooltip: 'View all',
+              onPressed: () => _viewEmails(label, savedEmails),
             ),
-            const SizedBox(width: 4),
             IconButton(
               icon: const Icon(Icons.save_outlined, color: Colors.blue),
               tooltip: 'Save',
-              onPressed: widget.canEdit ? () => _saveEmails(path, controller.text) : null,
+              onPressed: widget.canEdit
+                  ? () => _saveEmailsForKey(
+                        label: label,
+                        settingKey: settingKey,
+                        controller: controller,
+                        currentList: savedEmails,
+                        onListUpdated: onListUpdated,
+                      )
+                  : null,
             ),
           ],
+        ),
+        _buildSavedEmailsList(
+          settingKey: settingKey,
+          label: label,
+          emails: savedEmails,
+          onListUpdated: onListUpdated,
         ),
       ],
     );
@@ -205,16 +352,47 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
       showCompletedAlerts: _showCompletedAlerts,
       showActiveAlerts: _showActiveAlerts,
       showInspectionCompliance: _showInspectionCompliance,
+      completionProofPin: _completionProofPinCtrl.text,
     );
+    await CompletionProofPinService.refresh();
 
-    // Save the three email lists:
-    await _saveEmailsSilent('settings/Report_Recievers/Emailids', _reportEmailsCtrl.text);
-    await _saveEmailsSilent('settings/Alerts_Recievers/Emailids', _alertsEmailsCtrl.text);
-    await _saveEmailsSilent('settings/Missing Tanks_Recievers/Emailids', _missingTanksEmailsCtrl.text);
-
-    _reportEmailsCtrl.clear();
-    _alertsEmailsCtrl.clear();
-    _missingTanksEmailsCtrl.clear();
+    try {
+      if (_reportEmailsCtrl.text.trim().isNotEmpty) {
+        final merged = EmailReceiverSettings.mergeParsedInput(
+          _reportEmailsCtrl.text,
+          _reportEmailList,
+        );
+        await _persistEmailList(EmailReceiverSettings.reportKey, merged);
+        _reportEmailList = merged;
+        _reportEmailsCtrl.clear();
+      }
+      if (_alertsEmailsCtrl.text.trim().isNotEmpty) {
+        final merged = EmailReceiverSettings.mergeParsedInput(
+          _alertsEmailsCtrl.text,
+          _alertsEmailList,
+        );
+        await _persistEmailList(EmailReceiverSettings.alertsKey, merged);
+        _alertsEmailList = merged;
+        _alertsEmailsCtrl.clear();
+      }
+      if (_missingTanksEmailsCtrl.text.trim().isNotEmpty) {
+        final merged = EmailReceiverSettings.mergeParsedInput(
+          _missingTanksEmailsCtrl.text,
+          _missingTanksEmailList,
+        );
+        await _persistEmailList(EmailReceiverSettings.missingTanksKey, merged);
+        _missingTanksEmailList = merged;
+        _missingTanksEmailsCtrl.clear();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save email receivers: $e'), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
 
     await widget.onSettingsSaved?.call(
       noTimeout: _noTimeout,
@@ -305,6 +483,29 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
                 ? (v) => setState(() => _showInspectionCompliance = v)
                 : null,
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _completionProofPinCtrl,
+            enabled: widget.canEdit,
+            obscureText: !_showCompletionPin,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              labelText: 'Task completion PIN (no-photo bypass)',
+              hintText: '4–8 digit PIN for supervisors',
+              helperText:
+                  'Stored per client in client_settings → dashboard_display. '
+                  'Leave empty to disable bypass.',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _showCompletionPin ? Icons.visibility_off : Icons.visibility,
+                ),
+                onPressed: () =>
+                    setState(() => _showCompletionPin = !_showCompletionPin),
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
           OutlinedButton.icon(
             onPressed: () {
@@ -344,20 +545,26 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
           const SizedBox(height: 16),
           _buildEmailSettingsField(
             label: 'Report Receivers',
+            settingKey: EmailReceiverSettings.reportKey,
             controller: _reportEmailsCtrl,
-            path: 'settings/Report_Recievers/Emailids',
+            savedEmails: _reportEmailList,
+            onListUpdated: (v) => _reportEmailList = v,
           ),
           const SizedBox(height: 16),
           _buildEmailSettingsField(
             label: 'Alerts Receivers',
+            settingKey: EmailReceiverSettings.alertsKey,
             controller: _alertsEmailsCtrl,
-            path: 'settings/Alerts_Recievers/Emailids',
+            savedEmails: _alertsEmailList,
+            onListUpdated: (v) => _alertsEmailList = v,
           ),
           const SizedBox(height: 16),
           _buildEmailSettingsField(
             label: 'Missing Tanks Receivers',
+            settingKey: EmailReceiverSettings.missingTanksKey,
             controller: _missingTanksEmailsCtrl,
-            path: 'settings/Missing Tanks_Recievers/Emailids',
+            savedEmails: _missingTanksEmailList,
+            onListUpdated: (v) => _missingTanksEmailList = v,
           ),
           const SizedBox(height: 20),
           const Divider(),
